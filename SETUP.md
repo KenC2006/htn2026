@@ -43,3 +43,18 @@ bump-pydantic refactored 38 of 118 files and left 7 TODO markers. Residual v1 AP
 - `agent(..., options={"isolation": "worktree"})` is supported natively. Other option keys: label, phase, schema, model, timeout, agent_type.
 - Template: `.jiuwenswarm/agent/workspace/skills/swarmskill-creator/templates/scripts/workflow.py.template`
 - Validator: `.jiuwenswarm/agent/workspace/skills/swarmskill-creator/scripts/validate_swarmskill.py`
+
+## Models and budget (OpenRouter, $40 hard cap, expires 2026-09-26)
+The Huawei-issued key is an OpenRouter key. Base URL `https://openrouter.ai/api/v1`, OpenAI-compatible.
+Check spend any time, free: `curl -s https://openrouter.ai/api/v1/key -H "Authorization: Bearer $API_KEY"`
+
+| Role | Model | $/M in | $/M out | Note |
+|---|---|---|---|---|
+| Workers | `qwen/qwen3-coder-next` | 0.12 | 0.80 | Smoke-tested: wrote valid-looking PyO3 for $0.00015 |
+| Reviewer, distiller | `moonshotai/kimi-k2.7-code` | 0.71 | 3.21 | Different family on purpose. Reasoning model: max_tokens >= 2000 |
+| Worker fallback | `deepseek/deepseek-v4.1-flash` | 0.15 | 0.60 | Untested |
+| Do NOT use on this key | `anthropic/claude-fable-5.1`, `openai/gpt-6-astra` | 10 | 50 | One full run would drain the cap |
+
+Rough cost of one full run at worker prices (100 files, 2 attempts each, 20k in / 5k out per attempt): about $1.30. Same run on Fable: about $90.
+The frontier single-agent baseline should run through someone's own Claude Code subscription, not this key.
+Cache every model response to disk. It protects the budget and lets the demo replay offline.
