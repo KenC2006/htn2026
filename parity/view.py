@@ -85,6 +85,8 @@ class Board:
         self.finished: dict | None = None
         self.hidden: str = ""
         self.hidden_pass = self.hidden_total = 0
+        self.activity: dict | None = None        # what is being run right now: the expert's probes, the tests, the tester's attack
+        self._inputs: dict[str, dict] = {}
 
     # ── helpers ────────────────────────────────────────────────────────────
     def _counterexample(self, e: dict, export: str) -> str:
@@ -96,6 +98,42 @@ class Board:
                 got = lambda o: o.get("value") if o.get("status") == "ok" else o.get("error_code") or o.get("status")  # noqa: E731
                 return f"{call}   original = {got(cx['source'])}   new code = {got(cx['target'])}"
         return ""
+
+    @staticmethod
+    def _call(name: str, inputs: object, width: int = 32) -> str:
+        args = ", ".join(f"{k}={json.dumps(v, ensure_ascii=False)}" for k, v in inputs.items()) if isinstance(inputs, dict) else json.dumps(inputs)
+        return _short(f"{name}({args})", width)
+
+    @staticmethod
+    def _got(o: dict | None) -> str:
+        if not o:
+            return "?"
+        return _short(json.dumps(o.get("value"), ensure_ascii=False), 20) if o.get("status") == "ok" else f"raises {o.get('error_code') or o.get('status')}"
+
+    def _show(self, title: str, style: str, rows: list[tuple[str, str]], marks: str = "", foot: str = "") -> None:
+        self.activity = {"title": title, "style": style, "rows": rows, "marks": marks, "foot": foot, "shown": 0.0}
+
+    def _tests(self, e: dict, name: str, title: str) -> None:
+        """Every test of this check, old answer next to new answer, read from what the checker saved."""
+        folder = self.run_dir / "observations" / (e.get("attempt_id") or "").replace(":", "-")
+        try:
+            read = lambda f: {o["case_id"]: o for o in map(json.loads, (folder / f).read_text(encoding="utf-8").splitlines())}  # noqa: E731
+            old, new = read("source_obs.jsonl"), read("target_obs.jsonl")
+            cases = self.run_dir / "cases.jsonl"
+            if cases.exists() and len(self._inputs) < len(old):
+                self._inputs = {c["case_id"]: c for c in map(json.loads, cases.read_text(encoding="utf-8").splitlines())}
+        except Exception:  # noqa: BLE001
+            return
+        same = lambda k: (old[k].get("status"), old[k].get("value"), old[k].get("error_code")) == (new.get(k, {}).get("status"), new.get(k, {}).get("value"), new.get(k, {}).get("error_code"))  # noqa: E731
+        order = sorted(old, key=lambda k: same(k))                       # differences first
+        rows = []
+        for k in order[:40]:
+            c = self._inputs.get(k, {})
+            ok = same(k)
+            rows.append((f"{'✓' if ok else '✗'} {self._call(c.get('export', name), c.get('input', k))}  old {self._got(old[k])}  new {self._got(new.get(k))}", "green" if ok else "bold red"))
+        bad = sum(1 for k in old if not same(k))
+        self._show(title, "cyan", rows, "".join("✓" if same(k) else "✗" for k in old),
+                   f"{len(old) - bad} of {len(old)} tests give the same answer" + (f", {bad} differ" if bad else ""))
 
     def say(self, e: dict, kind: str, who: str, text: str) -> None:
         self.feed.append((_ts(e) - self.t0, kind, who, text))
@@ -116,6 +154,9 @@ class Board:
             piece["code"], piece["path"], piece["shown"], piece["touched"] = content, path, float(min(same, int(piece["shown"]))), self.now
 
     def tick(self, dt: float) -> None:
+        if self.activity:
+            total = max(len(self.activity["rows"]), len(self.activity["marks"]) / 4)
+            self.activity["shown"] = min(self.activity["shown"] + dt * 14, total + 1)   # tests appear one after another
         for s in self.pieces.values():
             if s["shown"] < len(s["code"]):
                 s["shown"] = min(len(s["code"]), s["shown"] + max(len(s["code"]) / 2.2, 90) * dt)
@@ -157,6 +198,11 @@ class Board:
             self.say(e, "worker", worker, f"asks the expert about {name}: {_short(p.get('question'), 110)}")
         elif t == "tool.probe_source":
             self.say(e, "expert", "expert", f"runs the original to find out ({_probe_count(p)})")
+            try:
+                rows = [(f"{self._call(p.get('export', ''), r.get('input'), 52)}  →  {self._got(r)}", "yellow") for r in json.loads(p.get("result") or "[]")]
+            except Exception:  # noqa: BLE001
+                rows = [(_short(p.get("result"), 100), "yellow")]
+            self._show("expert  ·  running the original Python to see what it really does", "yellow", rows)
         elif t == "decision.recorded":
             self.rules.append(p)
             self.say(e, "expert", "expert", f"rule: {_short(p['ruling'], 100)}")
@@ -187,6 +233,12 @@ class Board:
             self.say(e, "tester", "tester", f"tries to break {name}")
         elif t == "tool.try_inputs":
             bad = [r for r in p.get("rows", []) if r.get("differs")]
+            shown = sorted(p.get("rows", []), key=lambda r: not r.get("differs"))
+            self._show(f"tester  ·  trying to break {name} with inputs it made up", "red",
+                       [(f"{'✗' if r.get('differs') else '✓'} {self._call(p.get('export', name), r.get('input'))}  old {_short(json.dumps(r.get('original'), ensure_ascii=False), 20)}"
+                         f"  new {_short(json.dumps(r.get('new'), ensure_ascii=False), 20)}", "bold red" if r.get("differs") else "green") for r in shown],
+                       "".join("✗" if r.get("differs") else "✓" for r in p.get("rows", [])),
+                       f"{p.get('tried')} inputs tried, {p.get('differ')} differ")
             call = lambda r: f"{p.get('export')}({', '.join(f'{k}={v}' for k, v in r['input'].items())})" if isinstance(r.get("input"), dict) else json.dumps(r.get("input"))  # noqa: E731
             if bad:
                 self.say(e, "tester", "tester", f"✗ broke it: {_short(call(bad[0]), 70)}  old → {_short(bad[0]['original'], 30)}  new → {_short(bad[0]['new'], 30)}"
@@ -207,6 +259,8 @@ class Board:
             if "compile" in (e.get("attempt_id") or ""):
                 return
             why = REASONS.get(p.get("reason"), p.get("reason"))
+            if p.get("reason") == "REJECTED_BEHAVIOR":
+                self._tests(e, name, f"checker  ·  {name}: old code and new code on the same tests")
             cx = self._counterexample(e, piece["what"] if piece else "")
             first = (p.get("detail") or "").splitlines()[0] if p.get("detail") else ""
             if cx:
@@ -221,6 +275,7 @@ class Board:
             self.say(e, "checker", "checker", f"{name} was written before a new rule: sent back")
         elif t == "candidate.verified":
             self._set(piece, "passes the tests", "green", f"✓ {_plain_count(p)}", "green")
+            self._tests(e, name, f"checker  ·  {name}: old code and new code on the same tests")
             self.say(e, "checker", "checker", f"{name}: {_plain_count(p)}")
         elif t == "chunk.accepted":
             if piece:
@@ -271,6 +326,24 @@ class Board:
         return Panel(Group(*parts), title=f"[bold]{s['what'] or cid}[/bold]", title_align="left",
                      subtitle=Text(s["state"], style=s["style"]), subtitle_align="right", border_style=border, height=height, box=box.ROUNDED)
 
+    def _activity_panel(self, height: int) -> Panel | None:
+        a = self.activity
+        if not a:
+            return None
+        n = int(a["shown"])
+        room = max(height - 4 - (1 if a["marks"] else 0), 2)
+        parts: list = []
+        if a["marks"]:
+            marks = Text()
+            for ch in a["marks"][: n * 4]:
+                marks.append(ch, style="green" if ch == "✓" else "bold red")
+            parts.append(marks)
+        parts += [Text(text, style=style, no_wrap=True, overflow="ellipsis") for text, style in a["rows"][:n][:room]]
+        done = n >= len(a["rows"]) and n * 4 >= len(a["marks"])
+        if a["foot"] and done:
+            parts.append(Text(a["foot"], style="bold"))
+        return Panel(Group(*parts), title=a["title"], title_align="left", border_style=a["style"], height=height, box=box.ROUNDED)
+
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
         who = self.mode[9:] if self.mode.startswith("outside: ") else "agent team"
@@ -301,7 +374,22 @@ class Board:
             src_lines = max(min(len(x["src"].splitlines()), (cap - 6) // 3), 2)
             new_lines = max(min(len(x["code"].splitlines()) + 1, cap - 6 - src_lines), 3)
             code_h = src_lines + new_lines + 6
-            grid = self._code_panel(active, x, src_lines, new_lines, code_h)
+            code = self._code_panel(active, x, src_lines, new_lines, code_h)
+            side = self._activity_panel(code_h)
+            if side is not None and width >= 110:
+                grid = Table.grid(expand=True)
+                grid.add_column(ratio=1)
+                grid.add_column(ratio=1)
+                grid.add_row(code, side)
+            elif side is not None:
+                extra = min(max(free - code_h - 6, 0), 12)
+                grid = Group(code, self._activity_panel(extra)) if extra >= 5 else code
+                code_h += extra if extra >= 5 else 0
+            else:
+                grid = code
+        elif self.activity:                                   # nobody is writing yet: the expert is settling the planner's questions
+            code_h = max(min(int(free * 0.6), 16), 6)
+            grid = self._activity_panel(code_h)
 
         room = max(free - code_h - 2 - (1 if others else 0), 3)
         lines: list[Text] = []
@@ -343,7 +431,8 @@ def watch(run_dir: Path, *, replay: bool = False, speed: float = 1.0, proc=None)
         last = [None]
 
         def show() -> None:
-            key = (int(board.now - board.t0), len(board.feed), console.size, tuple((x["state"], x["note"], int(x["shown"])) for x in board.pieces.values()))
+            key = (int(board.now - board.t0), len(board.feed), console.size, tuple((x["state"], x["note"], int(x["shown"])) for x in board.pieces.values()),
+                   (board.activity or {}).get("title"), int((board.activity or {}).get("shown", 0)))
             if key != last[0]:
                 last[0] = key
                 live.update(draw(), refresh=True)
