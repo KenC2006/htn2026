@@ -11,8 +11,8 @@ Trust boundary:
 - Source observations are produced from the frozen fixture and kept outside the workspace.
 
 Formats: CONTRACTS.md. Usage:
-  python -m ratchet.engine.gate freeze <profile_dir>
-  python -m ratchet.engine.gate check <profile_dir> --chunk P2 --candidate cand.json --cases cases.jsonl --run-dir runs/x
+  python -m parity.engine.gate freeze <profile_dir>
+  python -m parity.engine.gate check <profile_dir> --chunk P2 --candidate cand.json --cases cases.jsonl --run-dir runs/x
 """
 from __future__ import annotations
 
@@ -301,7 +301,7 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="ratchet.engine.gate")
+    ap = argparse.ArgumentParser(prog="parity.engine.gate")
     sub = ap.add_subparsers(dest="cmd", required=True)
     fz = sub.add_parser("freeze")
     fz.add_argument("profile_dir")

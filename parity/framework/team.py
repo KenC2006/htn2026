@@ -6,7 +6,7 @@ remembers its earlier attempts and what it was told. The workflow registers memb
 through `Team.ask`, which is the single place a model is ever invoked.
 
 Members never get shell or file tools. Everything they can touch is a function in
-ratchet/engine/tools.py that the trusted engine executes on their behalf.
+parity/engine/tools.py that the trusted engine executes on their behalf.
 """
 from __future__ import annotations
 

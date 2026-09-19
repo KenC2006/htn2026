@@ -5,7 +5,7 @@ cd "$ROOT" && . env/activate-swarm.sh >/dev/null
 mkdir -p runs
 for i in $(seq 1 "$4"); do
   id="$3-$i"; rm -rf "runs/$id" "runs/$id.out"
-  python -m ratchet.framework.run "$1" --args "{\"profile_dir\": \"$2\", \"run_id\": \"$id\"}" --token-limit "${5:-400000}" > "runs/$id.out" 2>&1 &
+  python -m parity.framework.run "$1" --args "{\"profile_dir\": \"$2\", \"run_id\": \"$id\"}" --token-limit "${5:-400000}" > "runs/$id.out" 2>&1 &
 done
 wait
 for i in $(seq 1 "$4"); do echo "== $3-$i"; python env/show-run.py "$3-$i" | head -2; done

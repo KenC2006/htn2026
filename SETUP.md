@@ -1,4 +1,4 @@
-# Ratchet: environment
+# Parity: environment
 
 Everything lives inside this folder. Nothing is installed globally or written to your home directory.
 

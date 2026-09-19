@@ -1,4 +1,4 @@
-# Ratchet hour-one contracts (v1, owner: A)
+# Parity hour-one contracts (v1, owner: A)
 
 What B, C and D build against. Change only by telling A; bump `schema_version` if a field changes meaning.
 Full background: `Ratchet_Hackathon_Plan.md` section 14.
@@ -36,11 +36,11 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 
     . env/activate-swarm.sh            # PowerShell:  . .\env\activate-swarm.ps1
     python -m unittest tests.test_gate tests.test_flow
-    python -m ratchet doctor                                   # toolchains, key, budget
-    python -m ratchet scan tests/flow_fixture                  # validates YOUR profile folder too, costs nothing
-    python -m ratchet run tests/flow_fixture --run-id try-1    # team run (add --solo for the single-agent baseline)
-    python -m ratchet status try-1
-    python -m ratchet export try-1                             # runs/try-1/export/: migration.patch, report.md, receipts.json
+    python -m parity doctor                                   # toolchains, key, budget
+    python -m parity scan tests/flow_fixture                  # validates YOUR profile folder too, costs nothing
+    python -m parity run tests/flow_fixture --run-id try-1    # team run (add --solo for the single-agent baseline)
+    python -m parity status try-1
+    python -m parity export try-1                             # runs/try-1/export/: migration.patch, report.md, receipts.json
     python env/show-run.py try-1                               # full event trace
     python env/compare-runs.py try-1 other-run                 # side-by-side metrics (for D)
 
@@ -147,5 +147,5 @@ Workers have three tools only (ask the steward, compile, submit). The gate build
 
 Add to `profile.json`: `"locked_cases": "locked/cases.jsonl"`, and put `"locked/*"` in `frozen` and `"locked"` in `oracle_paths`.
 Same case format as `cases.jsonl`, generated with **different seeds** from your development cases (see `tests/flow_fixture/gen_cases.py`).
-`python -m ratchet evaluate <run_id>` runs the accepted tree against them exactly once, after the run. Results go into each receipt's
+`python -m parity evaluate <run_id>` runs the accepted tree against them exactly once, after the run. Results go into each receipt's
 `locked_evaluation` and into `report.md`. A failure is kept as a result and makes the run non-exportable; it is never fed back to an agent.

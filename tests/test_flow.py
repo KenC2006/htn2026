@@ -9,12 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ratchet.engine import gate
-from ratchet.engine.contracts import ContractLedger, DecisionRejected
-from ratchet.engine.events import EventLog
-from ratchet.engine.integrator import Integrator
-from ratchet.engine.tools import RunContext
-from ratchet.framework.team import TEAM
+from parity.engine import gate
+from parity.engine.contracts import ContractLedger, DecisionRejected
+from parity.engine.events import EventLog
+from parity.engine.integrator import Integrator
+from parity.engine.tools import RunContext
+from parity.framework.team import TEAM
 
 FIXTURE = Path(__file__).parent / "flow_fixture"
 BUCKET = "pub fn bucket(ts: i64, width: i64) -> i64 {\n    ts.div_euclid(width) * width\n}\n"
@@ -27,7 +27,7 @@ PROPOSAL = {"contract_id": "time-arithmetic", "kind": "implementation_clarificat
 
 class FlowTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="ratchet-flow-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="parity-flow-"))
         self.profile = self.tmp / "profile"
         shutil.copytree(FIXTURE, self.profile)
         gate.freeze(self.profile)
@@ -189,7 +189,7 @@ class FlowTest(unittest.TestCase):
         self.events.emit("run.finished", actor="scheduler", payload={"accepted": self.integ.accepted, "exportable": True, "accepted_tree": self.integ.tree_hash()})
 
     def test_locked_evaluation_passes_a_correct_tree_and_is_single_use(self):
-        from ratchet.engine.evaluate import locked_evaluate
+        from parity.engine.evaluate import locked_evaluate
         self._accept_tree()
         summary = locked_evaluate(self.run_dir, self.profile)
         self.assertEqual(summary["status"], "PASS")
@@ -198,7 +198,7 @@ class FlowTest(unittest.TestCase):
         self.assertFalse((self.run_dir / "candidates" / "S1-locked-eval" / "locked").exists())  # hidden from the candidate
 
     def test_locked_evaluation_catches_what_development_cases_missed(self):
-        from ratchet.engine.evaluate import locked_evaluate
+        from parity.engine.evaluate import locked_evaluate
         # Passes all 27 development cases (none uses width 7), but is wrong.
         sneaky = "pub fn offset(ts: i64, width: i64) -> i64 {\n    if width == 7 { ts % width } else { ts.rem_euclid(width) }\n}\n"
         self._accept_tree(offset_code=sneaky)
@@ -223,7 +223,7 @@ class FlowTest(unittest.TestCase):
     def test_member_with_a_poisoned_conversation_gets_one_fresh_start(self):
         # Regression: one malformed tool call made the provider reject every later call of that member (HTTP 400).
         from types import SimpleNamespace
-        from ratchet.framework.team import MemberSpec
+        from parity.framework.team import MemberSpec
         TEAM.reset("t")
         TEAM.register(MemberSpec("solo", "solo", "prompt"))
         built = []
@@ -253,7 +253,7 @@ class FlowTest(unittest.TestCase):
     # ── CLI (no model calls) ──
     def _cli(self, fn, **kw):
         import argparse, contextlib, io
-        from ratchet import cli
+        from parity import cli
         cli.RUNS = self.tmp  # the run lives at <tmp>/run
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):

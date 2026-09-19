@@ -1,4 +1,4 @@
-"""Run a SwarmFlow script headless: python -m ratchet.framework.run <script.py> [--args '{"k": 1}']
+"""Run a SwarmFlow script headless: python -m parity.framework.run <script.py> [--args '{"k": 1}']
 
 Uses Huawei's SwarmFlow engine (run_workflow) with the OpenRouter backend.
 The journal lives under runs/ so a re-run with --resume replays finished agents for free.

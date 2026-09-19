@@ -9,8 +9,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from ratchet.engine import gate
-from ratchet.engine.events import EventLog
+from parity.engine import gate
+from parity.engine.events import EventLog
 
 FIXTURE = Path(__file__).parent / "gate_fixture"
 GOOD = "pub fn bucket(ts: i64, width: i64) -> i64 {\n    ts.div_euclid(width) * width\n}\n"
@@ -24,7 +24,7 @@ def cand(content=GOOD, path="target/bucket.rs", **extra):
 
 class GateTest(unittest.TestCase):
     def setUp(self):
-        self.tmp = Path(tempfile.mkdtemp(prefix="ratchet-gate-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="parity-gate-"))
         self.profile = self.tmp / "profile"
         shutil.copytree(FIXTURE, self.profile)
         gate.freeze(self.profile)

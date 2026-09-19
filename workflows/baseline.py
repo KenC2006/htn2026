@@ -1,6 +1,6 @@
 """Single-agent baseline (the comparison arm). Same gate, integrator, cases, model, attempts and token cap as migrate.py.
 
-  python -m ratchet.framework.run workflows/baseline.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "solo-001"}'
+  python -m parity.framework.run workflows/baseline.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "solo-001"}'
 
 ONE persistent agent does every chunk in dependency order and is its own steward: it can probe the
 original and compile, exactly like the team's members can between them. What it does not have is
@@ -12,15 +12,15 @@ from pathlib import Path
 
 from swarmflow import agent, log, phase
 
-from ratchet.engine import gate
-from ratchet.engine.contracts import ContractLedger
-from ratchet.engine.events import EventLog
-from ratchet.engine.integrator import Integrator
-from ratchet.engine.tools import RunContext
-from ratchet.framework.team import TEAM
+from parity.engine import gate
+from parity.engine.contracts import ContractLedger
+from parity.engine.events import EventLog
+from parity.engine.integrator import Integrator
+from parity.engine.tools import RunContext
+from parity.framework.team import TEAM
 
 META = {
-    "name": "ratchet-baseline",
+    "name": "parity-baseline",
     "description": "Single-agent comparison arm: one agent migrates every chunk under the same gate and budget.",
     "phases": [{"title": "Migrate"}],
 }

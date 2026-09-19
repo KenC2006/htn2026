@@ -1,4 +1,4 @@
-"""Ratchet command line.  python -m ratchet <command>
+"""Parity command line.  python -m parity <command>
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
@@ -137,7 +137,7 @@ def run(ns: argparse.Namespace) -> int:
     args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id, "resume": bool(ns.resume)})
     RUNS.mkdir(exist_ok=True)
     with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
-        proc = subprocess.Popen([sys.executable, "-m", "ratchet.framework.run", str(script), "--args", args,
+        proc = subprocess.Popen([sys.executable, "-m", "parity.framework.run", str(script), "--args", args,
                                  "--token-limit", str(ns.token_limit)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT)
         if sys.stdout.isatty() and not ns.no_watch:
             from .view import watch as live_view
@@ -147,7 +147,7 @@ def run(ns: argparse.Namespace) -> int:
                 proc.terminate()
         code = proc.wait()
     status(argparse.Namespace(run_id=run_id))
-    print(f"\nNext: python -m ratchet export {run_id}")
+    print(f"\nNext: python -m parity export {run_id}")
     return code
 
 
@@ -267,7 +267,7 @@ def status(ns: argparse.Namespace) -> int:
 def _locked_line(receipts: dict) -> str:
     results = {c: r["locked_evaluation"] for c, r in receipts.items() if isinstance(r.get("locked_evaluation"), dict)}
     if not results:
-        return "- Locked evaluation (cases never used for repair): **NOT_RUN**. Run `python -m ratchet evaluate <run_id>`."
+        return "- Locked evaluation (cases never used for repair): **NOT_RUN**. Run `python -m parity evaluate <run_id>`."
     passed = sum(r["cases"].get("passed", 0) for r in results.values())
     total = sum(r["cases"].get("expected", 0) for r in results.values())
     failed = [f"{c} (first: {(r.get('first_failure') or {}).get('case_id')})" for c, r in results.items() if r["status"] != "PASS"]
@@ -318,7 +318,7 @@ def export(ns: argparse.Namespace) -> int:
     n = lambda t: sum(1 for e in ev if e["type"] == t)  # noqa: E731
     rejections = [v for v in verdicts if v["status"].startswith("REJECTED") and "compile" not in v["attempt_id"]]
     blocked = [(e["chunk_id"], e["payload"].get("reason")) for e in ev if e["type"] == "chunk.blocked"]
-    lines = [f"# Ratchet report: {ns.run_id}", "",
+    lines = [f"# Parity report: {ns.run_id}", "",
              f"**Status: {'ACCEPTED, exportable' if exportable else 'NOT EXPORTABLE'}**  ",
              f"Profile `{profile['profile']}`, mode `{start.get('mode', 'team')}`, {len(accepted)}/{len(chunks)} chunks accepted.  ",
              f"Accepted tree `{(fin or {}).get('accepted_tree', '?')[:16]}`, fixture `{next(iter(receipts.values()), {}).get('fixture_hash', '?')[:16]}`.", "",
@@ -353,8 +353,8 @@ def export(ns: argparse.Namespace) -> int:
     lines += ["- Finite testing within the declared input domain. This is evidence, not a proof of equivalence.",
               "- Candidates run as ordinary local processes without the original source or credentials; not a hardened sandbox.", "",
               "## Reproduce", "", "```", ". env/activate-swarm.sh",
-              f"python -m ratchet scan {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
-              f"python -m ratchet run {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}{' --solo' if start.get('mode') == 'single-agent' else ''}",
+              f"python -m parity scan {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
+              f"python -m parity run {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}{' --solo' if start.get('mode') == 'single-agent' else ''}",
               "```", ""]
     (out / "report.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"{'Exported' if exportable else 'NOT EXPORTABLE (report still written, labeled as such)'}: {out}")
@@ -364,7 +364,7 @@ def export(ns: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="ratchet", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="parity", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)
     p = sub.add_parser("scan"); p.add_argument("profile_dir"); p.set_defaults(fn=scan)

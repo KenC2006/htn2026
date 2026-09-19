@@ -210,7 +210,7 @@ class RunContext:
                      for i, v in enumerate(inputs)]
 
             def run() -> str:
-                with tempfile.TemporaryDirectory(prefix="ratchet-probe-") as d:
+                with tempfile.TemporaryDirectory(prefix="parity-probe-") as d:
                     cpath, out = Path(d) / "cases.jsonl", Path(d) / "obs.jsonl"
                     cpath.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
                     code, log = gate._run([*ctx.profile["run_source"], "--cases", str(cpath), "--out", str(out)], ctx.profile_dir, 30)

@@ -1,4 +1,4 @@
-# Dot-source this in PowerShell before any ratchet command:   . .\env\activate-swarm.ps1
+# Dot-source this in PowerShell before any parity command:   . .\env\activate-swarm.ps1
 # Same as activate-swarm.sh: project Python, UTF-8 output, state kept inside the repo, keys from env/secrets.env.
 $root = Split-Path -Parent $PSScriptRoot
 $env:JIUWENSWARM_HOME = $root

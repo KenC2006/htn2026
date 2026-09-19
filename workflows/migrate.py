@@ -1,9 +1,9 @@
-"""Ratchet migration workflow (SwarmFlow). Generic over profiles; everything route-specific is in the fixture.
+"""Parity migration workflow (SwarmFlow). Generic over profiles; everything route-specific is in the fixture.
 
-  python -m ratchet.framework.run workflows/migrate.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "flow-001"}'
+  python -m parity.framework.run workflows/migrate.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "flow-001"}'
 
 Team: one worker per chunk and one contract steward. All are openJiuwen ReActAgents with memory
-and narrow tools (ratchet/engine/tools.py): workers can compile and can ask the steward; the
+and narrow tools (parity/engine/tools.py): workers can compile and can ask the steward; the
 steward can run the original implementation. SwarmFlow schedules them; the gate decides.
 
 Per dependency level: independent chunks run in parallel (max 2 workers). Each chunk gets
@@ -19,15 +19,15 @@ from pathlib import Path
 
 from swarmflow import agent, log, parallel, phase
 
-from ratchet.engine import gate
-from ratchet.engine.contracts import ContractLedger
-from ratchet.engine.events import EventLog
-from ratchet.engine.integrator import Integrator
-from ratchet.engine.tools import DECISION_SCHEMA, RunContext
-from ratchet.framework.team import TEAM
+from parity.engine import gate
+from parity.engine.contracts import ContractLedger
+from parity.engine.events import EventLog
+from parity.engine.integrator import Integrator
+from parity.engine.tools import DECISION_SCHEMA, RunContext
+from parity.framework.team import TEAM
 
 META = {
-    "name": "ratchet-migrate",
+    "name": "parity-migrate",
     "description": "Gated multi-agent migration of one profile: parallel workers, contract steward, serial integrator.",
     "phases": [{"title": "Plan"}, {"title": "Migrate"}, {"title": "Integrate"}],
 }

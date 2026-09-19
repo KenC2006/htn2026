@@ -1,12 +1,18 @@
-# Ratchet pitch
+# Parity pitch
 
-## One breath
+## One sentence
 
-Ratchet rewrites old code in a new language with a team of AI agents, and keeps a piece only if it gives exactly the same outputs as the original.
+**Parity is a team of AI agents that rewrites your code in a new language and proves, piece by piece, that it still does exactly what the old code did.**
+
+On a slide: *AI rewrites your code in a new language. Parity proves it still works the same.*
+
+## If they ask "why not just ask Claude or GPT?"
+
+You can, and Parity will check that too (`python -m parity check`). A top model one-shot passed: 300 of 300 on the hidden test set. A cheater that hardcoded the visible test answers looked identical and was caught: 196 of 300. The point is not who writes the code. It is that you know whether it is right.
 
 ## Ten seconds more (if they are still listening)
 
-AI can translate code, but you cannot trust it: it looks right and is wrong on the edge cases. In Ratchet the agents never get to say "done". A checker that is plain code, not AI, runs the old and new versions on the same inputs and compares every output. Pass and it is kept for good. Fail and the agent gets the exact input that broke.
+AI can translate code, but you cannot trust it: it looks right and is wrong on the edge cases. In Parity the agents never get to say "done". A checker that is plain code, not AI, runs the old and new versions on the same inputs and compares every output. Pass and it is kept for good. Fail and the agent gets the exact input that broke.
 
 ## Why it is a team and not one agent (Huawei, 30 seconds)
 

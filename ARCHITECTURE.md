@@ -1,4 +1,4 @@
-# Ratchet architecture: who is an agent, what Huawei's framework does, what we added
+# Parity architecture: who is an agent, what Huawei's framework does, what we added
 
 ## What runs on openJiuwen / WorkSwarm
 
@@ -9,7 +9,7 @@
 | Tools | **openJiuwen `@tool` / `LocalFunction`**, registered with `Runner.resource_mgr` | The members' tools below |
 | Budget | **`SwarmflowBudgetRail`** | Bills real token usage per model call inside the agent loop; stops agents when the run's cap is hit |
 
-Glue we wrote: `ratchet/framework/backend.py` (a SwarmFlow `AgentBackend` that maps `agent(..., options={"member": ...})` to a turn with that team member) and `ratchet/framework/team.py` (member registry).
+Glue we wrote: `parity/framework/backend.py` (a SwarmFlow `AgentBackend` that maps `agent(..., options={"member": ...})` to a turn with that team member) and `parity/framework/team.py` (member registry).
 
 We do **not** use WorkSwarm's stock `TeamWorkerBackend`. Its workers inherit general file and shell tools, which would let a worker read the tests or the original code. Our members get only the tools listed here.
 
@@ -21,7 +21,7 @@ We do **not** use WorkSwarm's stock `TeamWorkerBackend`. Its workers inherit gen
 | `worker-<chunk>` (one per chunk, parallel) | `MODEL_NAME` (Qwen3 Coder) | `ask_steward`, `check_compile`, `submit_candidate` | run tests, see cases or expected outputs, read or write files, touch other chunks |
 | `steward` (one, serial, remembers every ruling) | `REVIEWER_MODEL` (Kimi, a different model family on purpose) | `probe_source` (runs the frozen ORIGINAL on inputs it chooses), `submit_ruling` | change expected behavior, issue a pass, see candidates' test results beyond the one counterexample it is sent |
 
-Not agents, on purpose (deterministic code in `ratchet/engine/`): scheduler, contract service, gate, integrator.
+Not agents, on purpose (deterministic code in `parity/engine/`): scheduler, contract service, gate, integrator.
 
 ## How they actually collaborate (all observable in `runs/<id>/events.jsonl`)
 

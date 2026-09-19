@@ -9,11 +9,11 @@ from pathlib import Path
 
 from swarmflow import agent, log, phase
 
-from ratchet.engine import gate
-from ratchet.engine.events import EventLog
+from parity.engine import gate
+from parity.engine.events import EventLog
 
 META = {
-    "name": "ratchet-selftest-loop",
+    "name": "parity-selftest-loop",
     "description": "One chunk through worker, gate, counterexample-driven repair, and acceptance.",
     "phases": [{"title": "Attempt 1"}, {"title": "Attempt 2"}],
 }

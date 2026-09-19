@@ -3,7 +3,7 @@
 SwarmFlow (openjiuwen.agent_teams.workflow.engine) owns orchestration: parallel,
 phases, journal/resume, budgets. This backend is the only place a model is
 called. Workers get no tools here on purpose: they return a structured patch
-and the Ratchet gate does all building and execution.
+and the Parity gate does all building and execution.
 """
 from __future__ import annotations
 

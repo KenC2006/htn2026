@@ -2,7 +2,7 @@
 from swarmflow import agent, log, parallel, phase
 
 META = {
-    "name": "ratchet-smoke",
+    "name": "parity-smoke",
     "description": "Two parallel workers return structured patches; a third step depends on both.",
     "phases": [
         {"title": "Port", "detail": "Two independent workers"},

@@ -1,4 +1,4 @@
-"""Live terminal view of a run, in plain words.  python -m ratchet watch <run_id> [--replay]
+"""Live terminal view of a run, in plain words.  python -m parity watch <run_id> [--replay]
 
 Reads only runs/<id>/ (events.jsonl, verdicts, accepted files), so it works on a run in progress,
 a finished run, or a replay. The code of each piece is typed out next to the original as it arrives.
@@ -265,7 +265,7 @@ class Board:
 
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
-        head = Text.assemble(("  RATCHET  ", "bold black on green"), f"  {self.title}   ",
+        head = Text.assemble(("  PARITY  ", "bold black on green"), f"  {self.title}   ",
                              ("ONE AGENT" if self.mode == "single-agent" else self.mode.upper() if self.mode.startswith("outside") else "AGENT TEAM", "bold"),
                              f"   run {self.run_id}   {int(max(self.now - self.t0, 0))}s   ",
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),

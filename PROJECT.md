@@ -1,10 +1,10 @@
-# Ratchet — project brief
+# Parity — project brief
 
 Hack the North 2026 · Huawei openJiuwen Multi-Agent Challenge (also submitting to Warp, Best Developer Tool)
 Team of 4 · 36 hours · Last updated Sept 18, 2026
 
 ## One line
-Ratchet is a swarm of AI agents that ports a Python library to Rust one module at a time, where every merge is checked by a referee the agents can't fool.
+Parity is a swarm of AI agents that ports a Python library to Rust one module at a time, where every merge is checked by a referee the agents can't fool.
 
 ## The pitch
 AI coding agents cheat. Published benchmarks show them editing tests, adding skip markers, and stubbing functions to get a green checkmark. In one benchmark up to half of a leading agent's "successes" depended on tampering with the tests. In another, pass rates jump from 72% to 98% the moment tests are switched off.
@@ -58,7 +58,7 @@ We don't assume it does. Same model, same tools, same token budget, same time ca
 - The mission-control UI and a backup video
 
 ## Why this fits the judges
-Rubric: collaboration 30, scenario 25, demo 20, technical 15, reusability 10. The judges are likely the openJiuwen platform engineers. Their own papers name portability, self-evolution, explicit budgets and quality gates, an honest "blocked" state, and fault tolerance as priorities or open problems. Ratchet demonstrates each. They have already seen travel planners, medical consults, research reports, and code-review teams.
+Rubric: collaboration 30, scenario 25, demo 20, technical 15, reusability 10. The judges are likely the openJiuwen platform engineers. Their own papers name portability, self-evolution, explicit budgets and quality gates, an honest "blocked" state, and fault tolerance as priorities or open problems. Parity demonstrates each. They have already seen travel planners, medical consults, research reports, and code-review teams.
 
 ## Team lanes
 | Lane | Owns |
