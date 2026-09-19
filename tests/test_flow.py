@@ -2,6 +2,7 @@
 
     python -m unittest tests.test_flow -v
 """
+import asyncio
 import json
 import shutil
 import tempfile
@@ -12,6 +13,8 @@ from ratchet.engine import gate
 from ratchet.engine.contracts import ContractLedger, DecisionRejected
 from ratchet.engine.events import EventLog
 from ratchet.engine.integrator import Integrator
+from ratchet.engine.tools import RunContext
+from ratchet.framework.team import TEAM
 
 FIXTURE = Path(__file__).parent / "flow_fixture"
 BUCKET = "pub fn bucket(ts: i64, width: i64) -> i64 {\n    ts.div_euclid(width) * width\n}\n"
@@ -88,6 +91,45 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(json.loads((self.run_dir / "receipts" / "S1.json").read_text())["status"], "STALE")
         self.assertTrue(self.integ.integrate("S1", self.cand("target/bucket.rs", BUCKET)).accepted)  # revalidated
         self.assertTrue(self.integ.exportable)
+
+    # ── member tools (no model calls) ──
+    def ctx(self):
+        profile = json.loads((self.profile / "profile.json").read_text())
+        return RunContext(self.profile, self.run_dir, self.profile / "cases.jsonl", profile, self.chunks, self.ledger, self.integ, self.events)
+
+    @staticmethod
+    def tool(specs, name):
+        return next(t.func for t in specs if t.name == name)
+
+    def test_steward_probe_runs_the_real_original_in_one_batch(self):
+        probe = self.tool(self.ctx().steward_tools(), "probe_source")
+        out = json.loads(asyncio.run(probe("offset", json.dumps([{"ts": -1, "width": 1000}, {"ts": 2500, "width": 1000}]))))
+        self.assertEqual([o["value"] for o in out], [999, 500])
+        self.assertIn("not valid JSON", asyncio.run(probe("offset", "{nope")))
+
+    def test_worker_compile_tool_builds_but_reveals_no_test_results(self):
+        tools = self.ctx().worker_tools("worker-S1", "S1")
+        compile_ = self.tool(tools, "check_compile")
+        self.assertEqual(asyncio.run(compile_("target/bucket.rs", BAD_BUCKET)), "BUILD_OK")  # wrong, but it compiles
+        self.assertIn("REJECTED_BUILD", asyncio.run(compile_("target/bucket.rs", "pub fn bucket() {")))
+        self.assertIn("REJECTED_POLICY", asyncio.run(compile_("runners/target.py", "x")))
+
+    def test_submit_tools_fill_the_outbox(self):
+        TEAM.reset("t")
+        ctx = self.ctx()
+        submit = self.tool(ctx.worker_tools("worker-S1", "S1"), "submit_candidate")
+        asyncio.run(submit("target/bucket.rs", "v1")); asyncio.run(submit("target/bucket.rs", BUCKET, "done"))
+        self.assertEqual(TEAM.outbox["worker-S1"]["files"], [{"path": "target/bucket.rs", "content": BUCKET}])
+        rule = self.tool(ctx.steward_tools(), "submit_ruling")
+        asyncio.run(rule("time-arithmetic", "implementation_clarification", "q", "Use div_euclid.", "legacy/timeparts.py, probe", "a"))
+        d = ctx.apply_proposal("S1", TEAM.outbox["steward"], asked_by="worker-S1")
+        self.assertEqual((d["version"], d["evidence_refs"]), (2, ["legacy/timeparts.py", "probe"]))
+
+    def test_behavior_change_from_steward_blocks_the_chunk_for_a_human(self):
+        ctx = self.ctx()
+        self.assertIsNone(ctx.apply_proposal("S1", {**PROPOSAL, "kind": "behavior_change", "question": "is -0 allowed?"}, asked_by="worker-S1"))
+        self.assertIn("needs a human", ctx.blocked["S1"])
+        self.assertEqual(self.ledger.contracts["time-arithmetic"]["version"], 1)
 
 
 if __name__ == "__main__":

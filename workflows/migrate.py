@@ -2,22 +2,29 @@
 
   python -m ratchet.framework.run workflows/migrate.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "flow-001"}'
 
+Team: one worker per chunk and one contract steward. All are openJiuwen ReActAgents with memory
+and narrow tools (ratchet/engine/tools.py): workers can compile and can ask the steward; the
+steward can run the original implementation. SwarmFlow schedules them; the gate decides.
+
 Per dependency level: independent chunks run in parallel (max 2 workers). Each chunk gets
-at most 2 worker attempts. A behavioral rejection goes to the contract steward, whose
-ruling becomes a versioned decision that every affected chunk must be re-checked against.
+at most 2 worker attempts. Steward rulings (asked for by a worker, or triggered by a verifier
+counterexample) become versioned decisions that every affected chunk must be re-checked against.
 Integration is serial; a candidate written under an older contract version is STALE there
 and is sent back to its worker with the new guidance.
 """
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from swarmflow import agent, log, parallel, phase
 
 from ratchet.engine import gate
-from ratchet.engine.contracts import ContractLedger, DecisionRejected
+from ratchet.engine.contracts import ContractLedger
 from ratchet.engine.events import EventLog
 from ratchet.engine.integrator import Integrator
+from ratchet.engine.tools import DECISION_SCHEMA, RunContext
+from ratchet.framework.team import TEAM
 
 META = {
     "name": "ratchet-migrate",
@@ -38,18 +45,6 @@ CANDIDATE_SCHEMA = {
         "notes": {"type": "string"},
     },
     "required": ["files", "question", "notes"],
-}
-
-DECISION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "contract_id": {"type": "string"},
-        "kind": {"type": "string", "enum": ["implementation_clarification", "behavior_change", "no_decision"]},
-        "question": {"type": "string"},
-        "ruling": {"type": "string", "description": "General target-language guidance any worker on this contract can apply"},
-        "evidence_refs": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["contract_id", "kind", "question", "ruling", "evidence_refs"],
 }
 
 
@@ -80,7 +75,10 @@ async def run(args):
     events.emit("run.started", actor="scheduler", profile=profile["profile"], payload={"chunks": list(chunks), "levels": levels})
     attempts = {c: 0 for c in chunks}
     stale_seq = {c: 0 for c in chunks}
-    blocked: dict[str, str] = {}
+    ctx = RunContext(profile_dir, run_dir, cases_path, profile, chunks, ledger, integ, events)
+    blocked = ctx.blocked
+    TEAM.reset(run_dir.name)
+    ctx.register_team(steward_model=args.get("steward_model") or os.environ.get("REVIEWER_MODEL"))
 
     def task_prompt(cid: str) -> str:
         m = chunks[cid]
@@ -99,32 +97,15 @@ async def run(args):
         )
 
     async def consult_steward(cid: str, candidate: dict, verdict) -> dict | None:
-        m = chunks[cid]
-        if not m.get("contract_ids"):
+        if not chunks[cid].get("contract_ids"):
             return None
-        source = "\n\n".join(f"# {p}\n{(profile_dir / p).read_text(encoding='utf-8')}" for p in m["source_files"])
+        events.emit("steward.consulted", actor="scheduler", chunk_id=cid,
+                    payload={"why": verdict.status, "case_id": (verdict.counterexample or {}).get("case_id")})
         proposal = await agent(
-            "You are the contract steward. A migration candidate was rejected because its behavior differs from the source.\n"
-            "Decide whether this reveals a general source-vs-target language difference that OTHER workers on the same "
-            "contract could also get wrong. If so, propose an `implementation_clarification`: one general rule for the "
-            "target language (not a patch for this function). You may never change the expected behavior; if the source "
-            "behavior itself is ambiguous use `behavior_change`; if this is just a local slip use `no_decision`.\n"
-            f"Contracts in play:\n{ledger.prompt_text(m['contract_ids'])}\n\n"
-            f"Counterexample (source is the truth): {json.dumps(verdict.counterexample)}\n\n"
-            f"Source:\n{source}\n\nRejected candidate:\n{json.dumps(candidate['files'])}\n"
-            f"evidence_refs must name the source file and the case id. contract_id must be one of {m['contract_ids']}.",
-            schema=DECISION_SCHEMA, label=f"steward-{cid}-{attempts[cid]}-{stale_seq[cid]}")
-        if not proposal or proposal.get("kind") == "no_decision":
-            return None
-        events.emit("worker.question", actor="contract-steward", chunk_id=cid,
-                    payload={"question": proposal.get("question"), "case_id": (verdict.counterexample or {}).get("case_id")})
-        try:
-            return ledger.record_decision(proposal, proposed_by="contract-steward", allowed_contracts=m["contract_ids"])
-        except DecisionRejected as e:
-            log(f"{cid}: steward proposal rejected by contract service: {e}")
-            if proposal.get("kind") == "behavior_change":
-                blocked[cid] = f"needs a human: {proposal.get('question')}"
-            return None
+            ctx.steward_query(cid, asked_by="the verifier (via scheduler)", counterexample=verdict.counterexample,
+                              candidate_files=candidate["files"]),
+            schema=DECISION_SCHEMA, label=f"steward-{cid}-{attempts[cid]}-{stale_seq[cid]}", options={"member": "steward"})
+        return ctx.apply_proposal(cid, proposal, asked_by="scheduler")
 
     async def settle(cid: str, prior: dict | None = None, stale_reason: str | None = None) -> dict | None:
         """Get one candidate through its own gate check. Returns it stamped with the contract hashes it was written under."""
@@ -151,9 +132,11 @@ async def run(args):
                     break
                 attempts[cid] += 1
                 label = f"worker-{cid}-attempt{attempts[cid]}"
-            used = ledger.hashes(m.get("contract_ids", []))
-            events.emit("worker.started", actor="scheduler", chunk_id=cid, payload={"label": label, "contract_hashes": used})
-            candidate = await agent(prompt, schema=CANDIDATE_SCHEMA, label=label)
+            member = f"worker-{cid}"
+            ctx.mark_seen(member, cid)
+            events.emit("worker.started", actor="scheduler", chunk_id=cid, payload={"label": label, "member": member})
+            candidate = await agent(prompt, schema=CANDIDATE_SCHEMA, label=label, options={"member": member})
+            used = ctx.seen[member]  # includes guidance the worker received from the steward mid-turn
             if candidate is None:
                 log(f"{cid}: worker returned nothing usable")
                 stale_retry = False

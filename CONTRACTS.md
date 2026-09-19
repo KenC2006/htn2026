@@ -80,6 +80,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 Workers may only return files listed in `write_allowlist`. Anything else is `REJECTED_POLICY`.
 
 - `worker_notes` (optional string): what the worker must know about your scaffold, e.g. exact signature, module layout, "must call crate::p1::dedupe_latest". The worker sees the source files, these notes, the contracts, and accepted dependency files. Nothing else.
+- `example_input` (object): one hand-written input in the same shape as your case `input`s, e.g. `{"ts": 2500, "width": 1000}`. The steward uses it to know how to call `probe_source`. Do not copy a real test case.
 - **Ship a compiling placeholder for every allowlisted file** (see `tests/flow_fixture/target/`). Chunks are built one at a time on top of the accepted tree, so the scaffold must compile before the other chunks exist.
 - Tag every case with its `chunk_id`. At integration the gate re-runs the cases of every accepted chunk plus the new one.
 
@@ -102,7 +103,9 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
  "actor": "verifier", "payload": {"reason": "REJECTED_BEHAVIOR", "case_id": "negative-boundary-01"}}
 ```
 
-Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question`, `decision.recorded`,
+Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
+`tool.probe_source` (the steward ran the original), `tool.check_compile`, `steward.consulted` (scheduler sent a counterexample),
+`steward.answered`, `decision.recorded`, `decision.rejected`,
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
 `chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
 
@@ -124,11 +127,11 @@ Gate verdict `reason` values (in gate order): `STALE`, `REJECTED_POLICY`, `REJEC
 
 `runs/<run_id>/receipts/<chunk_id>.json`: see plan section 14, "Gate verdict and receipt". Shape is frozen as written there.
 
-## 4. What a worker returns to the engine (A only)
+## 4. What a worker hands in (A only; via its `submit_candidate` tool)
 
 ```json
 {"files": [{"path": "target_rust/core/src/window_stats.rs", "content": "..."}],
  "question": "", "notes": ""}
 ```
 
-Workers have no tools. They return files; the gate builds and runs them.
+Workers have three tools only (ask the steward, compile, submit). The gate builds and runs what they submit. See `ARCHITECTURE.md`.

@@ -8,9 +8,10 @@ if out.exists():
     raw = out.read_text(encoding="utf-8", errors="replace"); i = raw.find('{\n  "result"')
     if i >= 0:
         d = json.loads(raw[i:]); print("RESULT", json.dumps(d["result"]))
-        print("calls", len(d["calls"]), "tokens", sum(c["usage"]["total_tokens"] for c in d["calls"]), "cost $%.5f" % sum(c["usage"].get("cost", 0) for c in d["calls"]))
+        print("agent turns", len(d["calls"]), "tokens", sum(c["usage"].get("total_tokens", 0) for c in d["calls"]), "cost_usd", d.get("cost_usd"))
     else:
-        print(raw[-2500:])
+        print(raw[-3000:])
 for l in (root / rid / "events.jsonl").open(encoding="utf-8"):
     e = json.loads(l); p = e["payload"]
-    print(e["sequence"], e["type"], e["chunk_id"] or "", e["attempt_id"] or p.get("label", ""), p.get("reason", ""), p.get("case_id") or "", (p.get("ruling") or "")[:110], p.get("affected_chunks") or "")
+    extra = p.get("question") or p.get("answer") or p.get("ruling") or p.get("detail") or (json.dumps(p.get("input")) + " -> " + p.get("result", "") if "input" in p else "") or p.get("result") or ""
+    print(f"{e['sequence']:>3} {e['type']:<20} {e['actor']:<17} {e['chunk_id'] or '':<3} {p.get('reason', ''):<18} {p.get('case_id') or '':<16} {str(extra)[:130]}")

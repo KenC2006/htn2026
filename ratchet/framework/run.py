@@ -8,21 +8,33 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
 from openjiuwen.agent_teams.workflow.engine import BudgetLedger, run_workflow
 
-from .backend import OpenRouterBackend
+from .backend import TeamBackend
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _spend() -> float | None:
+    """Total spend on the key so far, from OpenRouter. Run cost = after - before (exact, includes tool-loop calls)."""
+    try:
+        import httpx
+        r = httpx.get(os.environ["API_BASE"].rstrip("/") + "/key", headers={"Authorization": f"Bearer {os.environ['API_KEY']}"}, timeout=20)
+        return float(r.json()["data"]["usage"])
+    except Exception:
+        return None
 
 
 async def _main(ns: argparse.Namespace) -> int:
     runs = ROOT / "runs"
     runs.mkdir(exist_ok=True)
     journal = runs / f"{Path(ns.script).stem}.journal.json"
-    backend = OpenRouterBackend()
+    backend = TeamBackend()
+    spend0 = _spend()
     result = await run_workflow(
         ns.script,
         args=json.loads(ns.args) if ns.args else None,
@@ -32,7 +44,9 @@ async def _main(ns: argparse.Namespace) -> int:
         log_sink=lambda m: print(m, flush=True),
         workflow_budget=BudgetLedger(total=ns.token_limit) if ns.token_limit else None,
     )
-    print(json.dumps({"result": result, "calls": backend.calls}, indent=2, default=str))
+    spend = _spend()
+    print(json.dumps({"result": result, "calls": backend.calls,
+                      "cost_usd": None if None in (spend, spend0) else round(spend - spend0, 6)}, indent=2, default=str))
     return 0
 
 

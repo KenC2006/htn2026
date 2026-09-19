@@ -130,7 +130,7 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
           attempt_id: str | None = None, current_contract_hashes: dict | None = None,
           events: EventLog | None = None, overlay: dict | None = None,
           case_chunks: list | None = None, fail_status: str | None = None,
-          accept_event: str = "candidate.verified") -> Verdict:
+          accept_event: str = "candidate.verified", stop_after_build: bool = False) -> Verdict:
     """overlay: already-accepted files {path: content} laid down before the candidate's.
     case_chunks: run these chunks' cases instead of only `chunk_id`'s (integration re-check).
     fail_status: report build/test/behavior failures under this status (REJECTED_INTEGRATION)."""
@@ -245,6 +245,9 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
         v.logs["build"] = log
         if code != 0:
             return done("REJECTED_BUILD", "build", log[-1500:])
+
+    if stop_after_build:  # compile-only tool for workers: no cases run, nothing about behavior is revealed
+        return done("BUILD_OK", "build", v.logs.get("build", "")[-1500:])
 
     # Source oracle runs from the frozen fixture, never from the workspace.
     src_obs_path = obs_dir / "source_obs.jsonl"
