@@ -168,7 +168,9 @@ class RunContext:
                 gate.check, ctx.profile_dir, cid, {"files": [{"path": path, "content": content}]}, ctx.cases_path,
                 ctx.run_dir, attempt_id=f"{cid}:compile-{ctx._n}", overlay=ctx.integ.files_of(ctx.chunks[cid].get("depends_on", [])),
                 stop_after_build=True)
-            ctx.events.emit("tool.check_compile", actor=member, chunk_id=cid, payload={"result": v.status})
+            ctx.events.emit("tool.check_compile", actor=member, chunk_id=cid,
+                            payload={"result": v.status, "path": path, "content": content[:20000],
+                                     "error": "" if v.status == "BUILD_OK" else v.detail[:600]})
             return "BUILD_OK" if v.status == "BUILD_OK" else f"{v.status}: {v.detail[-1200:]}"
 
         async def ask_steward(question: str) -> str:
@@ -188,6 +190,7 @@ class RunContext:
             box = TEAM.outbox.setdefault(member, {"files": [], "question": "", "notes": ""})
             box["files"] = [f for f in box["files"] if f["path"] != path] + [{"path": path, "content": content}]
             box["notes"] = notes or box["notes"]
+            ctx.events.emit("worker.wrote", actor=member, chunk_id=cid, payload={"path": path, "content": content[:20000]})
             return f"Received {path}. Submit any other file you are allowed to write, otherwise stop now; the verifier takes it from here."
 
         return [ToolSpec("submit_candidate", "Hand in ONE finished file for verification. This is the only way to hand in work.", submit_candidate),

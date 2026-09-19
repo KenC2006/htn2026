@@ -111,7 +111,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 
 Event `type` values: `run.started`, `tool.read_source` (the planner read a chunk's source), `plan.accepted` (payload: `levels`, `chunks`, `risks`),
 `plan.rejected`, `planner.question` (a risk sent to the steward before workers start), `plan.fallback` (plan unusable, manifest dependencies used instead), `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
-`tool.probe_source` (the steward ran the original), `tool.check_compile`, `steward.consulted` (scheduler sent a counterexample),
+`tool.probe_source` (the steward ran the original), `tool.check_compile` (payload has `path`, `content`, `error`), `worker.wrote` (a file was handed in; payload has `path`, `content`), `steward.consulted` (scheduler sent a counterexample),
 `steward.answered`, `decision.recorded`, `decision.rejected`, `run.resumed`, `chunk.resumed` (reused from a still-valid receipt), `evaluation.locked`, `chunk.revalidated` (accepted code re-checked after a contract change),
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
 `chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
