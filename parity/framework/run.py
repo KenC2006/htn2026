@@ -31,8 +31,8 @@ def _spend() -> float | None:
 
 
 async def _main(ns: argparse.Namespace) -> int:
-    runs = ROOT / "runs"
-    runs.mkdir(exist_ok=True)
+    from ..paths import RUNS as runs
+    runs.mkdir(parents=True, exist_ok=True)
     wf_args = json.loads(ns.args) if ns.args else None
     tag = (wf_args or {}).get("run_id") if isinstance(wf_args, dict) else None
     (runs / "_journals").mkdir(exist_ok=True)

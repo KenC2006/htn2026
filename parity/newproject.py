@@ -21,12 +21,13 @@ from . import templates
 from .engine.domain import ALPHABET, in_domain
 from .scan_python import Function, scan
 
-ROOT = Path(__file__).resolve().parents[1]
+from .paths import PROJECTS, ROOT  # noqa: E402,F401
 RUST = {"int": "i64", "float": "f64", "str": "String", "bool": "bool"}
 RUST_WORDS = {"as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop",
               "match", "mod", "move", "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe",
               "use", "where", "while", "async", "await", "dyn", "abstract", "become", "box", "do", "final", "macro", "override", "priv",
               "typeof", "unsized", "virtual", "yield", "try", "json", "main"}
+BIGGEST_OUTPUT = 20_000   # characters of JSON; beyond this the inputs are not realistic and nothing downstream can show them
 DEV_CASES, HIDDEN_CASES = 40, 100
 
 
@@ -290,7 +291,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
     if len(set(names)) != len(names):
         raise SystemExit(f"two chosen functions share a name ({sorted(n for n in names if names.count(n) > 1)[0]}); choose them from one file at a time")
 
-    project = ROOT / "projects" / name
+    project = PROJECTS / name
     if project.exists():
         shutil.rmtree(project)
     for folder in ("legacy", "runners", "harness", "target", "chunks", "contracts", "view", "locked"):
@@ -335,6 +336,9 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
             skipped[f.name] = "gave different answers for the same inputs when run twice"
         elif "TypeError" in errors or "AttributeError" in errors:
             skipped[f.name] = "rejects the input types I settled on (TypeError); it needs type hints"
+        elif any(len(json.dumps(o.get("value"))) > BIGGEST_OUTPUT for o in first.values()):
+            skipped[f.name] = (f"returns outputs over {BIGGEST_OUTPUT} characters for some inputs in the range I settled on; "
+                               "give it type hints or narrower ranges so the inputs stay realistic")
         elif len(ok) < 0.5 * len(first):
             skipped[f.name] = f"raises {errors[0] if errors else 'errors'} on most inputs in the range I settled on"
         else:
@@ -394,6 +398,8 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         for c in k["dev"]:
             o = k["seen"][c["case_id"]]
             result = json.dumps(o["value"], ensure_ascii=False) if o["status"] == "ok" else f"raises {o['error_code']}"
+            if len(result) > 300:
+                continue
             if len(shown) < 8 and (len(shown) < 4 or result not in [r for _, r in shown]):
                 shown.append((json.dumps(c["input"], ensure_ascii=False), result))
         notes += "What the original really returns: " + "; ".join(f"{i} -> {r}" for i, r in shown) + "."
@@ -432,7 +438,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         leftover.unlink()
     if built.returncode != 0:
         raise SystemExit("the generated Rust scaffold does not compile (a bug in `parity new`):\n" + built.stderr[-1500:])
-    say(f"project ready: {os.path.relpath(project, ROOT).replace(os.sep, '/')}   {len(order)} pieces, {sum(len(k['dev']) for k in order)} test inputs, "
+    say(f"project ready: {os.path.relpath(project, Path.cwd()).replace(os.sep, '/') if Path.cwd().resolve() in project.resolve().parents else project}   {len(order)} pieces, {sum(len(k['dev']) for k in order)} test inputs, "
         f"{sum(len(k['hidden']) for k in order)} hidden")
     for fname, why in skipped.items():
         say(f"  skipped {fname}: {why}")

@@ -76,7 +76,8 @@ async def run(args):
     args = args or {}
     profile_dir = (ROOT / args.get("profile_dir", "tests/flow_fixture")).resolve()
     cases_path = profile_dir / args.get("cases", "cases.jsonl")
-    run_dir = ROOT / "runs" / args.get("run_id", "migrate")
+    from parity.paths import RUNS
+    run_dir = RUNS / args.get("run_id", "migrate")
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     chunks = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in sorted((profile_dir / "chunks").glob("*.json"))}
 

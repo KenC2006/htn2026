@@ -106,6 +106,7 @@ class RunContext:
     found: dict = field(default_factory=dict)        # chunk -> cases the tester found in the current hunt
     _cases_lock: threading.Lock = field(default_factory=threading.Lock)
     _found: int = 0
+    probe_calls: int = 0                             # probes used by the expert in its current request
     _n: int = 0
 
     def source_text(self, cid: str) -> str:
@@ -126,6 +127,7 @@ class RunContext:
     def steward_query(self, cid: str, *, asked_by: str, question: str = "", counterexample: dict | None = None,
                       candidate_files: list | None = None, build_error: str = "") -> str:
         m = self.chunks[cid]
+        self.probe_calls = 0
         parts = [f"Request from {asked_by} about chunk {cid} (exports {m['exports']}).",
                  f"Contracts in play:\n{self.ledger.prompt_text(m['contract_ids'])}",
                  f"Source:\n{self.source_text(cid)}"]
@@ -214,6 +216,9 @@ class RunContext:
             except json.JSONDecodeError as e:
                 return f"inputs_json is not valid JSON: {e}"
             inputs = (inputs if isinstance(inputs, list) else [inputs])[:8]
+            ctx.probe_calls += 1
+            if ctx.probe_calls > 4:                                      # an expert that keeps probing never rules
+                return "You have used your 4 probes for this request. Rule now from what you have seen: call submit_ruling."
             owner = next((c for c, m in ctx.chunks.items() if export in m.get("exports", [])), None)
             if owner and ctx.chunks[owner].get("input_domain"):          # only behavior inside the declared range matters
                 refused = [f"{json.dumps(v)}: {why}" for v in inputs if isinstance(v, dict) and (why := ctx.outside_domain(owner, v))]
@@ -237,6 +242,8 @@ class RunContext:
 
             result = await asyncio.to_thread(run)
             ctx.events.emit("tool.probe_source", actor=actor, payload={"export": export, "input": inputs, "result": result[:4000]})
+            if len(result) > 6000:                                       # one huge output once made a single prompt millions of tokens long
+                return result[:6000] + " … (cut: outputs this large cannot be shown; probe smaller inputs)"
             return result
 
         async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: str, answer: str) -> str:

@@ -19,6 +19,16 @@ from rich.text import Text
 from . import cli, picker
 
 ROOT, RUNS = cli.ROOT, cli.RUNS
+from .paths import PROJECTS, WORK  # noqa: E402
+
+
+def _rel(folder: Path) -> str:
+    """A path the way the person would type it: from where they are, else from Parity's own folder."""
+    folder = Path(folder).resolve()
+    for base in (Path.cwd().resolve(), ROOT):
+        if folder == base or base in folder.parents:
+            return str(folder.relative_to(base)).replace(os.sep, "/") or "."
+    return str(folder)
 STATE = RUNS / ".console.json"
 console = Console()
 ACCENT = picker.ACCENT
@@ -46,7 +56,7 @@ def _load() -> dict:
 
 
 def _save(state: dict) -> None:
-    RUNS.mkdir(exist_ok=True)
+    RUNS.mkdir(parents=True, exist_ok=True)
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
@@ -54,7 +64,7 @@ def _project_line(folder: Path) -> str:
     try:
         profile, chunks = cli._load_profile(folder)
         lang = profile.get("languages", {})
-        return f"{lang.get('source', '?')} → {lang.get('target', '?')}  ·  {len(chunks)} pieces  ·  {os.path.relpath(folder, ROOT).replace(os.sep, '/')}"
+        return f"{lang.get('source', '?')} → {lang.get('target', '?')}  ·  {len(chunks)} pieces  ·  {_rel(folder)}"
     except Exception:  # noqa: BLE001
         return f"(no project at {folder}; choose one with /use <folder>)"
 
@@ -84,7 +94,7 @@ def _projects() -> dict[tuple[str, str], list[Path]]:
     """Every project folder in the repo, grouped by language pair."""
     found: dict[tuple[str, str], list[Path]] = {}
     for pattern in ("tests/*/profile.json", "fixtures/*/profile.json", "fixtures/*/*/profile.json", "projects/*/profile.json"):
-        for f in sorted(ROOT.glob(pattern)):
+        for f in sorted(ROOT.glob(pattern)) + (sorted(WORK.glob(pattern)) if WORK != ROOT else []):
             try:
                 lang = json.loads(f.read_text(encoding="utf-8")).get("languages") or {}
             except Exception:  # noqa: BLE001
@@ -112,7 +122,7 @@ def choose_mode(state: dict, word: str = "") -> None:
             folders = projects.get((src, tgt), [])
             missing = [x for x in tools if not shutil.which(x)]
             note = ("no project folder yet" if not folders else f"needs {', '.join(missing)} installed" if missing
-                    else "ready  ·  " + ", ".join(os.path.relpath(f, ROOT).replace(os.sep, "/") for f in folders))
+                    else "ready  ·  " + ", ".join(_rel(f) for f in folders))
             options.append((f"{src} → {tgt}" + ("   (current)" if (src, tgt) == current else ""), note, bool(folders)))
         start = next((i for i, (a, b, _, _) in enumerate(pairs) if (a, b) == current), 0)
         pick = picker.pick(console, "Migration", options, start)
@@ -125,7 +135,7 @@ def choose_mode(state: dict, word: str = "") -> None:
         return
     folder = folders[0]
     if len(folders) > 1:
-        i = picker.pick(console, "Project", [(os.path.relpath(f, ROOT).replace(os.sep, "/"), "", True) for f in folders])
+        i = picker.pick(console, "Project", [(_rel(f), "", True) for f in folders])
         if i is None:
             return
         folder = folders[i]
@@ -328,7 +338,8 @@ def handle(line: str, state: dict) -> bool:
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
     elif cmd == "use":
-        folder = (Path(args[0]) if args and Path(args[0]).is_absolute() else ROOT / (args[0] if args else "")).resolve()
+        places = [Path(args[0]), PROJECTS / args[0], ROOT / args[0]] if args else []
+        folder = next((f.resolve() for f in places if (f / "profile.json").exists()), Path("."))
         if args and (folder / "profile.json").exists():
             state["project"] = str(folder)
             console.print(f"project: {_project_line(folder)}")
@@ -372,7 +383,8 @@ def handle(line: str, state: dict) -> bool:
 
 
 def shell() -> int:
-    state = {"project": str(ROOT / "tests" / "flow_fixture"), **_load()}
+    made = sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime) if WORK != ROOT and PROJECTS.exists() else []
+    state = {"project": str(made[0].parent if made else ROOT / "tests" / "flow_fixture"), **_load()}
     if not (Path(state["project"]) / "profile.json").exists():
         state["project"] = str(ROOT / "tests" / "flow_fixture")
     console.clear()

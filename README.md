@@ -12,6 +12,17 @@ Then `/run` to migrate, `/mode` to switch language pair, `/check <folder>` to te
 The same commands without the console: `python -m parity run tests/flow_fixture`, `python -m parity check ...`, `python -m parity --help`.
 No activate step is needed: the command switches to the project's Python and loads `env/secrets.env` by itself.
 
+## Use it from your own folder
+
+Add `bin` to your PATH once (PowerShell: `$env:Path += ";C:\path	o\HTNin"`), then work wherever your code is:
+
+    cd C:\my\project
+    parity new pricing.py        scan it, pick functions, build the tests
+    parity run                   the agent team migrates the project made most recently here
+    parity export <run id>       report and patch, and the proven Rust lands in ./pricing-rust/
+
+Everything Parity makes goes into `.parity/` in that folder (projects, runs). Inside the Parity repo it uses `projects/` and `runs/` as before. Plain `parity` opens the console in the same way.
+
 ## Migrate your own Python code
 
     python -m parity new <file.py | folder | module name>      (or /new in the console)

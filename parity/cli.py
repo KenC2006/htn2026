@@ -23,8 +23,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-RUNS = ROOT / "runs"
+from .paths import PROJECTS, ROOT, RUNS, WORK, project_dir
 
 
 def _events(run_id: str) -> list[dict]:
@@ -94,7 +93,7 @@ def doctor(_: argparse.Namespace) -> int:
 # ───────────────────────── scan ─────────────────────────
 
 def scan(ns: argparse.Namespace) -> int:
-    profile_dir = Path(ns.profile_dir).resolve()
+    profile_dir = project_dir(ns.profile_dir)
     profile, chunks = _load_profile(profile_dir)
     problems = []
     cases = _jsonl(profile_dir / "cases.jsonl")
@@ -142,7 +141,7 @@ def find_source(what: str) -> Path:
     except (ImportError, ValueError):
         spec = None
     if spec is None or not spec.origin or not spec.origin.endswith(".py"):
-        dest = ROOT / "projects" / "_downloads"
+        dest = PROJECTS / "_downloads"
         if not (dest / top).exists() and not (dest / f"{top}.py").exists():
             print(f"downloading {top} from PyPI…")
             got = subprocess.run([sys.executable, "-m", "pip", "download", top, "--no-deps", "--only-binary", ":all:", "-d", str(dest / "_wheels"), "-q"],
@@ -178,7 +177,7 @@ def new(ns: argparse.Namespace) -> int:
     name = ns.name or re.sub(r"[^a-z0-9]+", "-", ns.source.replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
     print()
     create(source, name, chosen, use_ai=not ns.no_ai)
-    print(f"\nNext: python -m parity run projects/{name}")
+    print(f"\nNext: parity run {name}")
     return 0
 
 
@@ -189,8 +188,8 @@ def run(ns: argparse.Namespace) -> int:
     script = ROOT / "workflows" / "migrate.py"
     if (RUNS / run_id / "events.jsonl").exists() and not ns.resume:
         sys.exit(f"run {run_id} already exists. Continue it with --resume, or choose another --run-id.")
-    args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id, "resume": bool(ns.resume)})
-    RUNS.mkdir(exist_ok=True)
+    args = json.dumps({"profile_dir": str(project_dir(ns.profile_dir)), "run_id": run_id, "resume": bool(ns.resume)})
+    RUNS.mkdir(parents=True, exist_ok=True)
     with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
         proc = subprocess.Popen([sys.executable, "-m", "parity.framework.run", str(script), "--args", args,
                                  "--token-limit", str(ns.token_limit)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT)
@@ -202,7 +201,7 @@ def run(ns: argparse.Namespace) -> int:
                 proc.terminate()
         code = proc.wait()
     status(argparse.Namespace(run_id=run_id))
-    print(f"\nNext: python -m parity export {run_id}")
+    print(f"\nNext: parity export {run_id}")
     return code
 
 
@@ -216,7 +215,7 @@ def check(ns: argparse.Namespace) -> int:
     from .engine.events import EventLog
     from .engine.integrator import Integrator
 
-    profile_dir, cand_dir = Path(ns.profile_dir).resolve(), Path(ns.candidate_dir).resolve()
+    profile_dir, cand_dir = project_dir(ns.profile_dir), Path(ns.candidate_dir).resolve()
     run_id = ns.run_id or datetime.now().strftime("check-%m%d-%H%M%S")
     run_dir = RUNS / run_id
     if (run_dir / "events.jsonl").exists():
@@ -445,13 +444,18 @@ def export(ns: argparse.Namespace) -> int:
     lines += ["- Finite testing within the declared input domain. This is evidence, not a proof of equivalence.",
               "- Candidates run as ordinary local processes without the original source or credentials; not a hardened sandbox.", "",
               "## Reproduce", "", "```", ". env/activate-swarm.sh",
-              f"python -m parity scan {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
-              f"python -m parity run {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
+              f"python -m parity scan {profile_dir.name}",
+              f"python -m parity run {profile_dir.name}",
               "```", ""]
     (out / "report.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
-    print(f"{'Exported' if exportable else 'NOT EXPORTABLE (report still written, labeled as such)'}: {out}")
+    print(f"{'Exported' if exportable else 'Not everything was kept (the report says what is missing)'}: {out}")
     for f in sorted(out.iterdir()):
         print(f"  {f.name}  ({f.stat().st_size} bytes)")
+    kept = RUNS / ns.run_id / "accepted"
+    if WORK != ROOT and kept.exists():                      # working in someone's own folder: put the new code where they can see it
+        dest = Path.cwd() / f"{profile_dir.name}-rust"
+        shutil.copytree(kept, dest, dirs_exist_ok=True)
+        print(f"\nThe proven Rust is in {dest.name}/")
     return 0 if exportable else 1
 
 
@@ -468,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("source"); p.add_argument("--name"); p.add_argument("--functions", help="comma-separated; default: every public function that qualifies")
     p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
     p.set_defaults(fn=new)
-    p = sub.add_parser("run"); p.add_argument("profile_dir")
+    p = sub.add_parser("run"); p.add_argument("profile_dir", nargs="?", help="project folder or name; default: the one made most recently here")
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
