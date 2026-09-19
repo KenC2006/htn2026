@@ -105,6 +105,23 @@ def make_value(rule: dict, rng: random.Random):
         return round(v, rng.choice([0, 1, 2, 3, 6])) if r < 0.8 else v
     if kind == "str":
         alphabet = rule.get("alphabet") or ALPHABET
+        samples = rule.get("samples") or []
+        r = rng.random()
+        if samples and r < 0.45:                                 # a realistic value as it is
+            return rng.choice(samples)
+        if samples and r < 0.85:                                 # a realistic value, damaged: where parsers go wrong
+            text = rng.choice(samples)
+            for _ in range(rng.choice([1, 1, 2, 3])):
+                at = rng.randrange(len(text) + 1)
+                move = rng.random()
+                if move < 0.35 and text:
+                    text = text[:at] + text[at + 1:]
+                elif move < 0.7:
+                    text = text[:at] + rng.choice(alphabet) + text[at:]
+                else:
+                    other = rng.choice(samples)
+                    text = text[:at] + other[rng.randrange(len(other) + 1):]
+            return text[: rule.get("max_len", 200)]
         return "".join(rng.choice(alphabet) for _ in range(rng.choice([0, 1, 3, 5, 8, 12, rule.get("max_len", 24)])))
     raise ValueError(kind)
 
@@ -121,10 +138,12 @@ def suggest(functions: list[Function]) -> dict:
     from concurrent.futures import ThreadPoolExecutor
     ask = ("Say what inputs this Python function is meant to take. Reply with ONE JSON object and nothing else: "
            '{"<param>": {"type": "int" or "float" or "str" or "bool" or "list[int]" or "list[float]" or "list[str]", "min": number, "max": number, '
-           '"max_len": int, "choices": [values], "nullable": true or false}, ..., "examples": [{"<param>": value, ...}, 6 of them]}. '
+           '"max_len": int, "choices": [values], "samples": [20 strings], "nullable": true or false}, ..., "examples": [{"<param>": value, ...}, 6 of them]}. '
            "Pick ONE type per parameter (for a number that may be whole or fractional say float). Use min/max for numbers: a realistic "
            "range that still reaches every branch, never beyond 1e12 either way, written as plain JSON numbers. Use max_len for free text and "
-           "choices for parameters that only make sense with a few values (format strings, modes, units). Each example is one full set of "
+           "choices for parameters that only make sense with a few values (format strings, modes, units). For every free-text parameter give "
+           "samples: 20 realistic and varied values a real caller would pass (for a URL parameter real-looking URLs of every shape, for a name "
+           "real names, and so on), plain ASCII, including the awkward ones that reach unusual branches. Each example is one full set of "
            "arguments that hits an interesting branch or edge.\n\n")
 
     def one(f: Function):
@@ -132,7 +151,7 @@ def suggest(functions: list[Function]) -> dict:
             try:
                 r = httpx.post(os.environ["API_BASE"].rstrip("/") + "/chat/completions", headers={"Authorization": f"Bearer {os.environ['API_KEY']}"},
                                json={"model": os.environ["MODEL_NAME"], "messages": [{"role": "user", "content": ask + "\n\n".join(f.needs[-6:] + [f.source])}],
-                                     "temperature": 0, "max_tokens": 2000, "response_format": {"type": "json_object"}}, timeout=90)
+                                     "temperature": 0, "max_tokens": 6000, "response_format": {"type": "json_object"}}, timeout=90)
                 found = json.loads(re.search(r"\{.*\}", r.json()["choices"][0]["message"]["content"], re.DOTALL).group(0))
                 if isinstance(found, dict):
                     return f.name, found.get(f.name) if isinstance(found.get(f.name), dict) else found
@@ -168,6 +187,13 @@ def rules_for(f: Function, hint: dict) -> dict | str:
         for key in ("min", "max", "max_len", "choices", "nullable"):
             if idea.get(key) not in (None, [], ""):
                 rule[key] = idea[key]
+        samples = [x for x in idea.get("samples") or [] if isinstance(x, str) and len(x) <= 200 and all(" " <= ch <= "~" for ch in x)]
+        if samples and kind == "str":
+            rule["samples"] = samples[:30]
+            rule["alphabet"] = ALPHABET + "".join(sorted(set("".join(samples)) - set(ALPHABET)))
+            rule["max_len"] = max(int(rule.get("max_len") or 0), max(map(len, samples)) + 8)
+            if not idea.get("choices"):
+                rule.pop("choices", None)          # words harvested from the source are a poor stand-in once there are real samples
         if "min" in rule and "max" in rule:
             limit = 10**12
             rule["min"], rule["max"] = max(-limit, min(rule["min"], rule["max"])), min(limit, max(rule["min"], rule["max"]))

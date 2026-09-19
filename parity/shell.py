@@ -59,15 +59,6 @@ def _project_line(folder: Path) -> str:
         return f"(no project at {folder}; choose one with /use <folder>)"
 
 
-def _budget() -> str:
-    try:
-        import httpx
-        d = httpx.get(os.environ["API_BASE"].rstrip("/") + "/key", headers={"Authorization": f"Bearer {os.environ['API_KEY']}"}, timeout=4).json()["data"]
-        return f"${d['usage']:.2f} used of ${d['limit']}"
-    except Exception:  # noqa: BLE001
-        return "unknown (run /doctor)"
-
-
 def _run_rows(limit: int = 10) -> list[dict]:
     rows = []
     for d in sorted((p for p in RUNS.iterdir() if (p / "events.jsonl").exists()), key=lambda p: -(p / "events.jsonl").stat().st_mtime)[:limit] if RUNS.exists() else []:
@@ -268,15 +259,11 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print()
     rows = [("mode", _project_line(Path(state["project"]))),
             ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
-            ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}"),
-            ("budget", _budget())]
+            ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}")]
     for label, value in rows:
         console.print(Text.assemble((f"  {label:<9}", "#00e0c4"), (value, "default")), highlight=False)
     console.print()
-    hint = Text("  ")
-    for name, what in (("/new", "pick code to migrate"), ("/run", "migrate"), ("/mode", "switch languages"), ("/check", "test someone else's translation"), ("/help", "more")):
-        hint.append(name, style="bold").append(f" {what}     ", style="dim")
-    console.print(hint)
+    console.print(Text("  /help for commands", style="dim"))
     console.print()
 
 

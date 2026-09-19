@@ -75,16 +75,42 @@ def _hint(node: ast.expr | None) -> tuple[str | None, bool]:
     return None, False
 
 
+MEMO_DECORATORS = {"lru_cache", "cache"}   # functools: remembers answers, never changes them
+
+
+def _is_memo(decorator: ast.AST) -> bool:
+    d = decorator.func if isinstance(decorator, ast.Call) else decorator
+    return (d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", "")) in MEMO_DECORATORS
+
+
+def _filled_once(fn: ast.AST) -> set[str]:
+    """Globals this function only ever sets inside `if NAME is None:`: a table built on first use.
+    That is a cache, not state: every call sees the same table, so calls cannot affect each other."""
+    declared = {n for sub in ast.walk(fn) if isinstance(sub, ast.Global) for n in sub.names}
+    guarded: dict[str, set[int]] = {n: set() for n in declared}
+    for sub in ast.walk(fn):
+        t = sub.test if isinstance(sub, ast.If) else None
+        if (isinstance(t, ast.Compare) and isinstance(t.left, ast.Name) and t.left.id in declared and len(t.ops) == 1
+                and isinstance(t.ops[0], ast.Is) and isinstance(t.comparators[0], ast.Constant) and t.comparators[0].value is None):
+            for inner in sub.body:
+                guarded[t.left.id] |= {id(x) for x in ast.walk(inner)}
+    stores = [x for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, (ast.Store, ast.Del)) and x.id in declared]
+    return {n for n in declared if all(id(x) in guarded[n] for x in stores if x.id == n)}
+
+
 class _Uses(ast.NodeVisitor):
-    def __init__(self) -> None:
+    def __init__(self, caches: set[str] = frozenset()) -> None:
         self.names: set[str] = set()
         self.problems: list[str] = []
+        self.caches = caches
 
     def visit_Name(self, node: ast.Name) -> None:
         self.names.add(node.id)
 
     def visit_Global(self, node: ast.Global) -> None:
-        self.problems.append(f"changes global state ({', '.join(node.names)}) on line {node.lineno}")
+        names = [n for n in node.names if n not in self.caches]
+        if names:
+            self.problems.append(f"changes global state ({', '.join(names)}) on line {node.lineno}")
 
     def visit_Nonlocal(self, node: ast.Nonlocal) -> None:
         self.problems.append(f"changes outer state on line {node.lineno}")
@@ -153,10 +179,12 @@ class _Module:
                         for a in sub.names:
                             self.imported.setdefault((a.asname or a.name).split(".")[0], ("typing-only", a.name, ""))
         for fn in self.functions.values():
+            caches = _filled_once(fn)
             for sub in ast.walk(fn):
                 if isinstance(sub, ast.Global):
                     for n in sub.names:
-                        self.state[n] = sub.lineno
+                        if n not in caches:
+                            self.state[n] = sub.lineno
 
     def seg(self, n: ast.AST) -> str:
         first = n.decorator_list[0].lineno if getattr(n, "decorator_list", None) else n.lineno
@@ -190,7 +218,7 @@ def _module(file: Path) -> _Module:
 def _closure(m: _Module, name: str, seen: set) -> tuple[list[str], list[str], list[str]]:
     """(problems, helper functions of the same file, source snippets needed) for one function, following what it calls."""
     node = m.functions[name]
-    uses = _Uses()
+    uses = _Uses(_filled_once(node))
     for part in node.body + node.args.defaults + [d for d in node.args.kw_defaults if d is not None]:
         uses.visit(part)
     problems, helpers, snippets = list(uses.problems), [], []
@@ -252,7 +280,7 @@ def scan_file(file: Path) -> list[Function]:
             f.reason = "is async"
         elif a.vararg or a.kwarg:
             f.reason = "takes *args or **kwargs"
-        elif node.decorator_list:
+        elif not all(_is_memo(d) for d in node.decorator_list):
             f.reason = f"has a decorator (@{ast.unparse(node.decorator_list[0])}), so its real behavior is defined elsewhere"
         elif not (a.args or a.kwonlyargs or a.posonlyargs):
             f.reason = "takes no inputs"
