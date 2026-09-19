@@ -56,14 +56,12 @@ def _only_function(text: str, names: list[str]) -> str:
     return text.strip()
 
 
-def _probe_lines(p: dict) -> str:
+def _probe_count(p: dict) -> str:
     try:
-        rows = json.loads(p.get("result") or "[]")
-        calls = [f"{p.get('export')}({', '.join(f'{k}={v}' for k, v in r['input'].items())}) = "
-                 f"{r['value'] if r['status'] == 'ok' else r.get('error_code') or r['status']}" for r in rows]
-        return "   ".join(calls[:4]) + (f"   (+{len(calls) - 4} more)" if len(calls) > 4 else "")
+        n = len(json.loads(p.get("result") or "[]"))
+        return f"{n} input{'s' if n != 1 else ''}"
     except Exception:  # noqa: BLE001
-        return _short(p.get("input"), 120)
+        return "a few inputs"
 
 
 def _plain_count(p: dict) -> str:
@@ -158,10 +156,10 @@ class Board:
             self._set(piece, "asking the expert", "yellow", "waiting for the expert's answer…", "yellow")
             self.say(e, "worker", worker, f"asks the expert about {name}: {_short(p.get('question'), 110)}")
         elif t == "tool.probe_source":
-            self.say(e, "expert", "expert", f"runs the original: {_short(_probe_lines(p), 110)}")
+            self.say(e, "expert", "expert", f"runs the original to find out ({_probe_count(p)})")
         elif t == "decision.recorded":
             self.rules.append(p)
-            self.say(e, "expert", "expert", f"rule: {_short(p['ruling'], 130)}")
+            self.say(e, "expert", "expert", f"rule: {_short(p['ruling'], 100)}")
         elif t == "decision.rejected":
             self.say(e, "checker", "checker", "refuses the expert's rule: it would change what the code does")
         elif t == "steward.answered":
@@ -270,7 +268,7 @@ class Board:
             parts.append(Text("rewritten  (nothing yet)", style="dim"))
         if s["note"]:
             parts.append(Text(s["note"], style=s["note_style"]))
-        return Panel(Group(*parts), title=f"[bold]{cid}[/bold] {s['what']}", title_align="left",
+        return Panel(Group(*parts), title=f"[bold]{s['what'] or cid}[/bold]", title_align="left",
                      subtitle=Text(s["state"], style=s["style"]), subtitle_align="right", border_style=border, height=height, box=box.ROUNDED)
 
     def render(self, height: int, width: int) -> Group:
@@ -284,26 +282,26 @@ class Board:
         caught = Text.assemble(("  caught ", "bold red"), (f"{len(self.caught)}  ", "red"),
                                (_short(self.caught[-1], max(width - 16, 40)), "red")) if self.caught else None
 
-        # code panels: as many pieces as fit side by side, the most recently active first
-        per_row = max(1, min(len(self.pieces), width // 46, 3))
-        order = list(self.pieces)
-        if len(order) > per_row:
-            order = sorted(order, key=lambda c: -self.pieces[c]["touched"])[:per_row]
-            order.sort(key=list(self.pieces).index)
-        fixed = 2 + (1 if rules else 0) + (1 if caught else 0)
-        free = max(height - fixed - 1, 12)
-        cap = max(min(int(free * 0.6), 34), 10)
-        src_lines = max(min(max((len(self.pieces[c]["src"].splitlines()) for c in order), default=3), (cap - 6) // 2), 2)
-        longest = max((len(self.pieces[c]["code"].splitlines()) for c in order), default=0)
-        new_lines = max(min(longest + 1, cap - 6 - src_lines), 4)
-        code_h = src_lines + new_lines + 6
-        grid = Table.grid(expand=True)
-        for _ in order:
-            grid.add_column(ratio=1)
-        if order:
-            grid.add_row(*[self._code_panel(c, self.pieces[c], src_lines, new_lines, code_h) for c in order])
-        hidden = [c for c in self.pieces if c not in order]
-        others = Text("  also: " + "   ".join(f"{c} {self.pieces[c]['state']}" for c in hidden), style="dim") if hidden else None
+        # one line per function, then ONE code panel: the function being worked on right now
+        marks = {"KEPT": ("✓", "bold green"), "NEED": ("✗", "bold red"), "REJE": ("✗", "bold red"), "FAIL": ("✗", "bold red"), "wait": ("·", "dim")}
+        wide = max((len(x["what"] or c) for c, x in self.pieces.items()), default=8) + 2
+        rows = []
+        for c, x in self.pieces.items():
+            mark, style = marks.get(x["state"][:4], ("…", x["style"]))
+            rows.append(Text.assemble((f"  {mark} ", style), (f"{(x['what'] or c):<{wide}}", "bold" if mark == "…" else "default"),
+                                      (f"{x['state']:<30}", x["style"]), (_short(x["note"], max(width - wide - 38, 20)), x["note_style"])))
+        listing = Group(*rows)
+        active = max((c for c in self.pieces if self.pieces[c]["code"] or self.pieces[c]["tries"]), key=lambda c: self.pieces[c]["touched"], default=None)
+        fixed = 2 + len(rows) + 1 + (1 if rules else 0) + (1 if caught else 0)
+        free = max(height - fixed - 1, 10)
+        grid, code_h, others = None, 0, None
+        if active:
+            x = self.pieces[active]
+            cap = max(min(int(free * 0.6), 26), 9)
+            src_lines = max(min(len(x["src"].splitlines()), (cap - 6) // 3), 2)
+            new_lines = max(min(len(x["code"].splitlines()) + 1, cap - 6 - src_lines), 3)
+            code_h = src_lines + new_lines + 6
+            grid = self._code_panel(active, x, src_lines, new_lines, code_h)
 
         room = max(free - code_h - 2 - (1 if others else 0), 3)
         lines: list[Text] = []
@@ -319,7 +317,7 @@ class Board:
             room -= need
             lines.append(line)
         feed = Group(Text(""), *reversed(lines))
-        return Group(*[x for x in (head, Text(""), grid, others, rules, caught, feed) if x is not None])
+        return Group(*[x for x in (head, Text(""), listing, Text(""), grid, rules, caught, feed) if x is not None])
 
 
 def _read(path: Path) -> list[dict]:
