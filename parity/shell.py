@@ -155,6 +155,16 @@ def choose_model(args: list[str]) -> None:
     console.print("  [dim]for this session only; the default lives in env/secrets.env[/dim]")
 
 
+# ── drawing ─────────────────────────────────────────────────────────────────
+LOGO = """\
+██████╗   █████╗  ██████╗  ██╗ ████████╗ ██╗   ██╗
+██╔══██╗ ██╔══██╗ ██╔══██╗ ██║ ╚══██╔══╝ ╚██╗ ██╔╝
+██████╔╝ ███████║ ██████╔╝ ██║    ██║     ╚████╔╝
+██╔═══╝  ██╔══██║ ██╔══██╗ ██║    ██║      ╚██╔╝
+██║      ██║  ██║ ██║  ██║ ██║    ██║       ██║
+╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝    ╚═╝       ╚═╝""".splitlines()
+
+
 def _shade(t: float) -> str:
     """Green to blue, left to right."""
     a, b = (0x00, 0xFF, 0x9C), (0x3D, 0x8B, 0xFF)
