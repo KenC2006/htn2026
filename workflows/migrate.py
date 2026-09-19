@@ -256,6 +256,9 @@ async def run(args):
                 stale_retry, prompt = True, stale_prompt(candidate["files"], v.detail)
                 continue
             stale_retry = False
+            if v.status == "BLOCKED":   # the checker itself cannot run: no model can fix that, so no more tries are spent on it
+                blocked[cid] = f"the checker could not run: {v.detail[:120]}"
+                break
             # Behavior mismatches always go to the steward. Build failures go back only when the worker was
             # following steward guidance: the steward can be wrong too, and only the compiler can tell it so.
             if v.status == "REJECTED_BEHAVIOR" or (v.status == "REJECTED_BUILD" and ctx.has_guidance(cid)):

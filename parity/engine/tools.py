@@ -265,8 +265,10 @@ class RunContext:
     def add_found_case(self, cid: str, value: dict) -> dict:
         """A tester input on which the candidate and the original disagreed joins the run's cases for good."""
         with self._cases_lock:
+            if not self._found:   # a resumed run already has found cases: a repeated case_id blocks every later check
+                self._found = self.cases_path.read_text(encoding="utf-8").count('"found_by"')
             self._found += 1
-            case = {"schema_version": 1, "case_id": f"found-{cid}-{self._found}", "chunk_id": cid,
+            case ={"schema_version": 1, "case_id": f"found-{cid}-{self._found}", "chunk_id": cid,
                     "export": self.chunks[cid]["exports"][0], "input": value, "found_by": "tester"}
             with self.cases_path.open("a", encoding="utf-8", newline="\n") as f:
                 f.write(json.dumps(case) + "\n")
