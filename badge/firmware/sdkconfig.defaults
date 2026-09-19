@@ -1,0 +1,20 @@
+# Console over the native USB-Serial-JTAG (same USB-C port; no UART chip on this board),
+# so idf.py monitor and printf both work over the one cable.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_UART_DEFAULT=n
+
+# 4 MB flash, matching the module.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="4MB"
+
+# Single-app layout; leaves the stock partitions behind (restore.py brings them back).
+CONFIG_PARTITION_TABLE_SINGLE_APP=y
+
+CONFIG_FREERTOS_HZ=1000
+
+# This badge runs off 2x AA through a boost converter (USB doesn't power the rail).
+# Wi-Fi TX current spikes on tired batteries sag the rail and trip the brownout
+# detector, rebooting mid-stream. Relax the threshold to the lowest level so the
+# board rides through transient sags instead of resetting. Fresh batteries are
+# still the real fix; this just buys margin.
+CONFIG_ESP_BROWNOUT_DET_LVL_SEL_7=y

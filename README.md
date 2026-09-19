@@ -1,96 +1,108 @@
-# Parity
+# Hack the North 2026
 
-**Parity is a team of AI agents that rewrites your code in a new language and proves, piece by piece, that it still does exactly what the old code did.**
+Two projects in this repo.
 
-Hack the North 2026, Huawei openJiuwen multi-agent challenge. Built on Huawei's SwarmFlow engine and openJiuwen agents.
+- **Parity** (Huawei openJiuwen track): rewrites Python in Rust and proves each function still does what the original did.
+- **BadgeCraft** (`badge/`): our own firmware for the HTN badge. It streams a laptop screen to the badge over Wi-Fi. There are a few badge apps too.
 
-## Run it
+## Parity
 
-    bin\parity                 (PowerShell or cmd;  bin/parity in bash)
+A model can translate code in seconds. What it can't do is tell you which parts it got wrong. Parity runs the old and new code on the same inputs and only keeps a function when every answer matches. When one fails, a team of agents fixes it.
 
-Then `/run` to migrate, `/mode` to switch language pair, `/check <folder>` to test a translation someone else wrote, `/help` for the rest.
-The same commands without the console: `python -m parity run tests/flow_fixture`, `python -m parity check ...`, `python -m parity --help`.
-No activate step is needed: the command switches to the project's Python and loads `env/secrets.env` by itself.
+We tested it on 60 functions from real Python libraries (humanize, statistics, colorsys, html, shlex, idna, inflection, urllib.parse):
 
-## Use it from your own folder
+| | functions proven on hidden inputs |
+|---|---|
+| Claude Fable, one attempt, no checking | 59 of 60 |
+| Fable + Parity | 60 of 60 |
+| fake translation that returns constants | 0 of 60 |
 
-Add `bin` to your PATH once (PowerShell: `$env:Path += ";C:\path	o\HTNin"`), then work wherever your code is:
+Fable's one miss didn't compile, and its own notes didn't mention it. Parity found it and the agents fixed it.
 
-    cd C:\my\project
+### Run it
+
+    bin\parity
+
+`/run` migrates the example, `/check <folder>` tests a translation someone else wrote, `/help` lists the rest. Without the console: `python -m parity --help`.
+
+On your own code, from any folder (add `bin` to PATH first):
+
     parity new pricing.py        scan it, pick functions, build the tests
-    parity run                   the agent team migrates the project made most recently here
-    parity export <run id>       report and patch, and the proven Rust lands in ./pricing-rust/
+    parity run                   the agents migrate it
+    parity run --start-from <folder>    check an existing translation, agents fix only what fails
+    parity export <run id>       the proven Rust lands in ./pricing-rust/
 
-Everything Parity makes goes into `.parity/` in that folder (projects, runs). Inside the Parity repo it uses `projects/` and `runs/` as before. Plain `parity` opens the console in the same way.
+`parity new` also takes a folder or a PyPI module name. It only accepts pure functions: anything that touches files, the clock, the network or shared state is refused with the reason. Python to Rust only. Everything it makes goes into `.parity/` in your folder.
 
-## Migrate your own Python code
+### Who does what
 
-    python -m parity new <file.py | folder | module name>      (or /new in the console)
+| Who | Job |
+|---|---|
+| planner | orders the work, flags where Python and Rust differ |
+| workers (parallel) | write one function each; never see the tests |
+| expert | runs the original to settle a question, writes the answer as a rule for every worker; reads compile errors and tells the worker the fix |
+| tester | makes up inputs to break a function that passed; what it finds becomes a permanent test |
+| checker (plain code, not AI) | compiles, runs old and new on the same inputs, compares. Nothing else can accept a function |
 
-A module that is not installed is downloaded from PyPI into `projects/_downloads/`. What happens, in order:
+A function that runs out of tries moves up to a stronger model (`ESCALATE_MODELS`). After a run, hidden inputs no agent saw are run once. More in `ARCHITECTURE.md`; the project folder format is in `CONTRACTS.md`.
 
-1. A plain-code scan lists every function as migratable or not, with the reason (files, clock, network, randomness, shared state, `*args`, decorators and generators are refused). Helpers, lookup tables and imports inside the same package travel with the function.
-2. You tick the functions you want (`--functions a,b` on the command line, `--list` to only see the scan).
-3. Input types and ranges come from type hints, else the model suggests them (`--no-ai` for defaults). Suggestions are never trusted.
-4. The original is run on generated inputs, twice. That decides the Rust return type, whether it becomes a `Result` (the original raises in range), and whether the function is deterministic. A function that fails is skipped with the reason.
-5. `projects/<name>/` is written: a copy of the original, one piece per function with its own contract, 40 test inputs and 100 hidden inputs each, runners, and a crate-free Rust harness that is confirmed to compile.
+Built on Huawei's SwarmFlow engine and openJiuwen agents (WorkSwarm 0.2.6). Models come from OpenRouter.
 
-Then `python -m parity run projects/<name>`. `projects/` is git-ignored because it holds a copy of the library. Python to Rust only for now.
-
-## Set up a fresh clone
+### Setup
 
 1. Python 3.11+ and `rustc` on PATH.
 2. `python -m venv .venv-swarm`, then `.venv-swarm\Scripts\pip install workswarm==0.2.6`
-3. `cp env/secrets.env.example env/secrets.env` and fill in the OpenRouter key (get it from Ken by DM; never commit it).
-4. `python -m parity doctor` checks all of the above and the remaining budget.
-5. `python -m unittest tests.test_gate tests.test_flow tests.test_new tests.test_telemetry` (no model calls, about a minute).
+3. Copy `env/secrets.env.example` to `env/secrets.env` and put in an OpenRouter key. Never commit it.
+4. `python -m parity doctor` checks the setup.
+5. Tests, no model calls, about a minute: `python -m unittest tests.test_gate tests.test_flow tests.test_new tests.test_telemetry`
 
-Everything stays inside this folder: WorkSwarm's state goes to `.jiuwenswarm/`, runs to `runs/`.
-
-## How it works
-
-| Who | Can do | Job |
-|---|---|---|
-| planner | read the source | splits the work, flags where the two languages differ |
-| workers (parallel) | compile, ask the expert | rewrite one piece each; never see the tests |
-| expert | run the original code | settles a question once, as a rule every worker must follow |
-| tester | run inputs through both versions | tries to break every piece that passed; what it finds becomes a permanent test |
-| checker (plain code, not AI) | build, run old and new on the same inputs, compare | the only thing that can accept a piece |
-
-After the run, a hidden test set that no agent ever saw is run once. Details: `ARCHITECTURE.md`.
-
-## Where things are
+### Where things are
 
 | Path | What |
 |---|---|
-| `parity/engine/` | checker (`gate.py`), shared rules, one-at-a-time integration, hidden test set, the agents' tools |
-| `parity/framework/` | the bridge to SwarmFlow and the openJiuwen agents |
+| `parity/engine/` | the checker (`gate.py`), rules, hidden tests, the agents' tools |
+| `parity/framework/` | the bridge to SwarmFlow and openJiuwen |
+| `parity/newproject.py`, `scan_python.py` | `parity new` |
 | `parity/shell.py`, `view.py`, `cli.py` | console, live view, commands |
-| `workflows/migrate.py` | the team's workflow, run by SwarmFlow |
-| `tests/flow_fixture/` | the working example project: copy it to add a language pair |
-| `fixtures/telemetry-workbench/py-rust-batch/` | the demo project (Aidan's fixture): three batch functions over sensor records, 24 named cases + 96 generated, 300 hidden. His reference Rust is in `tests/telemetry_known_good/` |
-| `CONTRACTS.md` | the folder format teammates build against |
-| `PITCH.md` | what to say |
-| `env/show-run.py`, `env/compare-runs.py` | print a run's event trace; compare runs side by side |
+| `workflows/migrate.py` | the team's workflow |
+| `fixtures/telemetry-workbench/py-rust-batch/` | the demo project (Aidan's) |
+| `env/bench.py` | the benchmark above |
 
-## Traps we already hit
+### Models
 
-1. WorkSwarm needs Python 3.11+. Use `.venv-swarm`, not the system Python.
-2. On Windows, WorkSwarm prints Chinese and crashes a cp1252 console without `PYTHONUTF8=1` (the `parity` command sets it).
-3. Without `JIUWENSWARM_HOME`, importing WorkSwarm writes to `~/.jiuwenswarm`. The variable is the PARENT folder (set by the command).
-4. The `swarmflow` module only exists inside a script the engine runs; it cannot be imported from a plain Python shell.
-5. Do not write `\n` or `\b` inside bash heredocs that generate code or JSON: they turn into real control characters.
+| Role | Day to day | Demo |
+|---|---|---|
+| planner, workers | `qwen/qwen3-coder-next` | `anthropic/claude-sonnet-5` |
+| expert, tester | `moonshotai/kimi-k2.7-code` | `anthropic/claude-opus-5` |
 
-## Models (OpenRouter key, $40 cap, expires 2026-09-26)
+The cheap models handle the small examples for a few cents a run. On real libraries they mostly fail, which is what `--start-from` and the move to stronger models are for.
 
-| Role | Model | $/M in | $/M out |
-|---|---|---|---|
-| planner, workers (day to day) | `qwen/qwen3-coder-next` | 0.12 | 0.80 |
-| expert, tester (day to day) | `moonshotai/kimi-k2.7-code` | 0.71 | 3.21 |
-| planner, workers (demo) | `anthropic/claude-sonnet-5` | 2 | 10 |
-| expert, tester (demo) | `anthropic/claude-opus-5` | 5 | 25 |
-| strongest | `anthropic/claude-fable-5.1` | 10 | 50 |
+### Windows traps
 
-Cheap models were enough for the toy examples and failed on real libraries (invalid Rust, 1 of 6 on `humanize`); a Fable one-shot of the same six functions passed 600 of 600 hidden tests.
+- WorkSwarm prints Chinese and crashes a cp1252 console without `PYTHONUTF8=1`. The `parity` command sets it.
+- Without `JIUWENSWARM_HOME`, importing WorkSwarm writes to your home folder. The command sets that too.
+- `swarmflow` can only be imported inside a script the engine runs.
 
-On the cheap models one run of the example costs about 3 cents. On the demo models a real-library function costs roughly 50 cents to a dollar: two `urllib.parse` runs cost about $13. Change models for a session with `/models`; the defaults are in `env/secrets.env`.
+## BadgeCraft
+
+The badge is an ESP32-C3 with a 320x240 ST7789 screen. We dumped the stock firmware, worked out the pins from it, and wrote our own.
+
+The badge becomes a Wi-Fi hotspot and a TCP server. The laptop joins, captures its screen, and sends JPEG frames. The badge decodes them with the JPEG decoder already in the chip's ROM and draws them. Raw frames managed about 1 fps; JPEG is what made it usable.
+
+    cd badge/firmware
+    idf.py set-target esp32c3 && idf.py build && idf.py -p COM5 flash
+    cd ../tools
+    python stream.py            (join Wi-Fi "BadgeCraft" first)
+
+Needs ESP-IDF 5.3+ and `pip install mss numpy pillow`. Details and the pin map are in `badge/firmware/README.md`.
+
+Flashing replaces the stock firmware. `tools/restore.py` puts it back from a full flash dump. Take your own with `esptool read_flash` before flashing. Ours are not in the repo because a dump holds the owner's contacts and badge token.
+
+Lua apps for the stock firmware, pushed with `tools/deploy.py`:
+
+| App | What |
+|---|---|
+| `doomish/` | a raycaster shooter drawn with box widgets, because the badge has no pixel API |
+| `snitch/` | a name tag that tells on you |
+| `cbradio/` | CB-radio text chat between badges |
+| `probe/` | a scratch app for trying things |
