@@ -28,7 +28,8 @@ COMMANDS = [
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
     ("/export [run]", "write the patch, report and receipts"),
-    ("/use <folder>", "choose the project to migrate"),
+    ("/mode [name]", "switch the migration: Python → Rust, C → Rust, TypeScript → ArkTS"),
+    ("/use <folder>", "point at a specific project folder"),
     ("/models [workers|expert <id>]", "show or change the models"),
     ("/quit", "leave"),
 ]
@@ -79,6 +80,86 @@ def _run_rows(limit: int = 10) -> list[dict]:
     return rows
 
 
+# ── migration modes ─────────────────────────────────────────────────────────
+# (source, target, words that select it, tools the pair needs on this machine)
+MODES = [("Python", "Rust", ("python", "py", "pyrust"), ("rustc",)),
+         ("C", "Rust", ("c", "crust"), ("rustc", "clang")),
+         ("TypeScript", "ArkTS", ("typescript", "ts", "arkts", "ark"), ("node",))]
+
+
+def _projects() -> dict[tuple[str, str], list[Path]]:
+    """Every project folder in the repo, grouped by language pair."""
+    found: dict[tuple[str, str], list[Path]] = {}
+    for pattern in ("tests/*/profile.json", "fixtures/*/profile.json", "fixtures/*/*/profile.json", "projects/*/profile.json"):
+        for f in sorted(ROOT.glob(pattern)):
+            try:
+                lang = json.loads(f.read_text(encoding="utf-8")).get("languages") or {}
+            except Exception:  # noqa: BLE001
+                continue
+            if lang.get("source") and lang.get("target"):
+                found.setdefault((lang["source"], lang["target"]), []).append(f.parent)
+    return found
+
+
+def choose_mode(state: dict, word: str = "") -> None:
+    import shutil
+    projects = _projects()
+    pairs = [(s, t, words, tools) for s, t, words, tools in MODES]
+    pairs += [(s, t, (), ()) for (s, t) in projects if (s, t) not in {(a, b) for a, b, _, _ in MODES}]
+    current = _pair(Path(state["project"]))
+    pick = None
+    if word:
+        w = word.lower().replace("→", "").replace("->", "").replace("-", "").replace(" ", "")
+        pick = next((i for i, (s, t, words, _) in enumerate(pairs) if w in words or w == str(i + 1) or w == (s + t).lower()), None)
+        if pick is None:
+            console.print(f"[red]no mode called {word}[/red]")
+    if pick is None:
+        t = Table(box=None, padding=(0, 2), show_header=False)
+        for i, (src, tgt, _, tools) in enumerate(pairs):
+            folders = projects.get((src, tgt), [])
+            missing = [x for x in tools if not shutil.which(x)]
+            if not folders:
+                note = Text("no project folder yet", style="dim")
+            elif missing:
+                note = Text(f"needs {', '.join(missing)} installed", style="yellow")
+            else:
+                note = Text(f"ready  ·  {', '.join(os.path.relpath(f, ROOT).replace(os.sep, '/') for f in folders)}", style="green")
+            mark = Text("●" if (src, tgt) == current else " ", style="bold #00e0c4")
+            t.add_row(mark, Text(str(i + 1), style="bold"), Text(f"{src} → {tgt}", style="bold" if folders else "dim"), note)
+        console.print(t)
+        try:
+            answer = console.input("[dim]  number, or Enter to keep the current one:[/dim] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        if not answer.isdigit() or not 1 <= int(answer) <= len(pairs):
+            return
+        pick = int(answer) - 1
+    src, tgt, _, _ = pairs[pick]
+    folders = projects.get((src, tgt), [])
+    if not folders:
+        console.print(f"[yellow]{src} → {tgt} has no project folder yet.[/yellow] [dim]Put one under fixtures/ (format: CONTRACTS.md), then /mode again.[/dim]")
+        return
+    folder = folders[0]
+    if len(folders) > 1:
+        for i, f in enumerate(folders):
+            console.print(f"  [bold]{i + 1}[/bold]  {os.path.relpath(f, ROOT).replace(os.sep, '/')}")
+        try:
+            answer = console.input("[dim]  which project:[/dim] ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return
+        folder = folders[int(answer) - 1] if answer.isdigit() and 1 <= int(answer) <= len(folders) else folders[0]
+    state["project"] = str(folder)
+    console.print(Text.assemble(("  mode  ", "#00e0c4"), (f"{src} → {tgt}", "bold"), (f"  ·  {_project_line(folder).split('  ·  ', 1)[1]}", "default")))
+
+
+def _pair(folder: Path) -> tuple[str, str]:
+    try:
+        lang = json.loads((folder / "profile.json").read_text(encoding="utf-8")).get("languages") or {}
+        return lang.get("source", "?"), lang.get("target", "?")
+    except Exception:  # noqa: BLE001
+        return "?", "?"
+
+
 # ── drawing ─────────────────────────────────────────────────────────────────
 LOGO = """\
 ██████╗   █████╗  ██████╗  ██╗ ████████╗ ██╗   ██╗
@@ -122,7 +203,7 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print(Text.assemble(("  old code ", "dim"), ("≡", "bold #00e0c4"), (" new code", "dim"),
                                 ("    AI rewrites it. Parity proves it still works the same.", "italic dim")))
     console.print()
-    rows = [("project", _project_line(Path(state["project"]))),
+    rows = [("mode", _project_line(Path(state["project"]))),
             ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
             ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}"),
             ("budget", _budget())]
@@ -130,7 +211,7 @@ def banner(state: dict, animate: bool = False) -> None:
         console.print(Text.assemble((f"  {label:<9}", "#00e0c4"), (value, "default")), highlight=False)
     console.print()
     hint = Text("  ")
-    for name, what in (("/run", "migrate"), ("/check", "test someone else's translation"), ("/runs", "history"), ("/help", "more")):
+    for name, what in (("/run", "migrate"), ("/mode", "switch languages"), ("/check", "test someone else's translation"), ("/help", "more")):
         hint.append(name, style="bold").append(f" {what}     ", style="dim")
     console.print(hint)
     console.print()
@@ -192,6 +273,8 @@ def handle(line: str, state: dict) -> bool:
     elif cmd == "clear":
         console.clear()
         banner(state)
+    elif cmd in ("mode", "modes"):
+        choose_mode(state, " ".join(args))
     elif cmd == "use":
         folder = (Path(args[0]) if args and Path(args[0]).is_absolute() else ROOT / (args[0] if args else "")).resolve()
         if args and (folder / "profile.json").exists():
