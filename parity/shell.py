@@ -40,7 +40,7 @@ COMMANDS = [
     ("/mode [python|c]", "what you are migrating: Python → Rust or C → Rust"),
     ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
     ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails"),
-    ("/verify <folder> [name]", "test a translation someone else wrote, no agents"),
+    ("/verify <folder> [--attack]", "test a translation someone else wrote: fixed and hidden tests, about a minute. --attack adds the AI tester"),
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
     ("/export [run]", "put the proven Rust in this folder, with a report"),
@@ -328,6 +328,8 @@ def handle(line: str, state: dict) -> bool:
         else:
             console.print("[red]that folder has no profile.json[/red]  example: /use tests/flow_fixture")
     elif cmd == "verify":
+        attack = "--attack" in args                      # also let the AI tester try to break it: minutes per function
+        args = [x for x in args if x != "--attack"]
         folder = args[0] if args else ""
         author = args[1] if len(args) > 1 else "outside"
         if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
@@ -335,8 +337,7 @@ def handle(line: str, state: dict) -> bool:
         else:
             state["last_run"] = _new_id(author)
             _save(state)
-            _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]])
-            _call(["status", state["last_run"]])
+            _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]] + ([] if attack else ["--no-tester"]))
     elif cmd in ("status", "export"):
         run_id = args[0] if args else None
         if run_id is None:
