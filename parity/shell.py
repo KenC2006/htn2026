@@ -40,11 +40,11 @@ COMMANDS = [
     ("/mode [python|c]", "what you are migrating: Python → Rust or C → Rust"),
     ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
     ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails"),
-    ("/verify <folder> [--attack]", "test a translation someone else wrote: fixed and hidden tests, about a minute. --attack adds the AI tester"),
+    ("/verify <file> <folder> [--attack]", "test a Rust translation of that file that someone else wrote (in <folder>/target): "
+                                           "fixed and hidden tests, about a minute. --attack adds the AI tester"),
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
     ("/export [run]", "put the proven Rust in this folder, with a report"),
-    ("/use <project>", "go back to a project made earlier (then /migrate with no file runs it again)"),
     ("/models", "change which AI models the agents use"),
     ("/doctor", "check the setup: Python, rustc, the key"),
     ("/quit", "leave"),
@@ -70,23 +70,7 @@ def _project_line(folder: Path) -> str:
         lang = profile.get("languages", {})
         return f"{lang.get('source', '?')} → {lang.get('target', '?')}  ·  {len(chunks)} pieces  ·  {_rel(folder)}"
     except Exception:  # noqa: BLE001
-        return f"(no project at {folder}; choose one with /use <folder>)"
-
-
-def _language(folder: Path) -> str:
-    """'c' or 'python': what the project in this folder migrates from."""
-    return "c" if _project_line(Path(folder)).startswith("C ") else "python"
-
-
-def _follow_mode(state: dict) -> bool:
-    """The current project always matches the mode: the newest project made here in that language. False if there is none."""
-    mode = state.get("mode", "python")
-    if (Path(state["project"]) / "profile.json").exists() and _language(state["project"]) == mode:
-        return True
-    made = [f.parent for f in sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime) if _language(f.parent) == mode] if PROJECTS.exists() else []
-    if made:
-        state["project"] = str(made[0])
-    return bool(made)
+        return f"(no project at {folder})"
 
 
 def choose_mode(state: dict, word: str = "") -> None:
@@ -99,10 +83,6 @@ def choose_mode(state: dict, word: str = "") -> None:
             return
         state["mode"] = keys[i]
     console.print(Text.assemble(("  mode  ", ACCENT), (MODES[state["mode"]][0], "default")))
-    if _follow_mode(state):
-        console.print(Text.assemble(("  project  ", ACCENT), (_project_line(Path(state["project"])), "default")))
-    else:
-        console.print(f"  [dim]no {MODES[state['mode']][0].split()[0]} project here yet: /check or /migrate a {MODES[state['mode']][2][0]} file[/dim]")
 
 
 def _fits_mode(state: dict, what: str) -> bool:
@@ -133,7 +113,7 @@ def _run_rows(limit: int = 10) -> list[dict]:
     return rows
 
 
-def new_project(state: dict, args: list[str]) -> None:
+def new_project(state: dict, args: list[str]) -> Path | None:
     """Scan real code, tick the functions to migrate, build the project."""
     import re
     from .newproject import create
@@ -166,8 +146,8 @@ def new_project(state: dict, args: list[str]) -> None:
     except SystemExit as e:
         console.print(f"[red]{e.code}[/red]")
         return
-    state["project"] = str(project)
     console.print(Text.assemble(("  ready  ", ACCENT), (_project_line(project), "default")))
+    return project
 
 
 MODELS = [("qwen/qwen3-coder-next", "$0.12 in / $0.80 out per million tokens  ·  fast, cheap"),
@@ -248,9 +228,7 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print(Text.assemble(("  old code ", "dim"), ("≡", "bold #00e0c4"), (" new code", "dim"),
                                 ("    AI rewrites it. Parity proves it still works the same.", "italic dim")))
     console.print()
-    matches = _follow_mode(state)
     rows = [("mode", MODES[state.get("mode", "python")][0]),
-            ("project", _project_line(Path(state["project"])) if matches else "none yet  ·  /migrate a file to make one"),
             ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
             ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}")]
     for label, value in rows:
@@ -306,8 +284,6 @@ def handle(line: str, state: dict) -> bool:
     except ValueError:
         words = line.split()
     cmd, args = words[0].lstrip("/").lower(), [w.strip('"') for w in words[1:]]
-    _follow_mode(state)
-    project = state["project"]
     last = lambda: args[0] if args else state.get("last_run")  # noqa: E731
 
     if cmd in ("quit", "exit", "q"):
@@ -316,12 +292,10 @@ def handle(line: str, state: dict) -> bool:
         show_help()
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
-    elif cmd in ("check", "migrate") and args and not _fits_mode(state, args[0]):
+    elif cmd in ("check", "migrate", "verify") and args and not _fits_mode(state, args[0]):
         pass
     elif cmd == "check":
-        if args and Path(args[0]).is_dir() and not (Path(args[0]) / "__init__.py").exists() and not any(Path(args[0]).glob("*.c")):
-            console.print(f"  that is a folder. To test a translation: /verify {args[0]}")
-        elif args:
+        if args:
             _call(["new", args[0], "--list"])
         else:
             console.print("  which file?  example: /check pricing.py")
@@ -329,43 +303,35 @@ def handle(line: str, state: dict) -> bool:
         # one command from a file to proven Rust: build the tests if this file has none yet, then run the team
         fresh = "--fresh" in args
         args = [x for x in args if x != "--fresh"]
-        if args and not (Path(args[0]) / "profile.json").exists():
-            name = cli.project_name(args[0])
-            if (PROJECTS / name / "profile.json").exists() and not fresh:
-                state["project"] = str(PROJECTS / name)
-                console.print(f"  [dim]using the tests already built for {name}  (add --fresh to rebuild them)[/dim]")
-            else:
-                new_project(state, args[:1])
-                if Path(state["project"]).name != name:
-                    return True
+        if not args:
+            console.print("  which file?  example: /migrate pricing.py")
+            return True
+        project = PROJECTS / cli.project_name(args[0])
+        if (project / "profile.json").exists() and not fresh:
+            console.print(f"  [dim]using the tests already built for {args[0]}  (add --fresh to rebuild them)[/dim]")
+        else:
+            project = new_project(state, args[:1])
+            if project is None:
+                return True
         state["last_run"] = _new_id("team")
         _save(state)
-        _call(["run", state["project"], "--run-id", state["last_run"]] + (["--start-from", args[1]] if len(args) > 1 else []))
-    elif cmd == "use":
-        places = [Path(args[0]), PROJECTS / args[0], ROOT / args[0]] if args else []
-        folder = next((f.resolve() for f in places if (f / "profile.json").exists()), Path("."))
-        if args and (folder / "profile.json").exists():
-            state["project"] = str(folder)
-            state["mode"] = _language(folder)
-            console.print(f"project: {_project_line(folder)}")
-        else:
-            console.print("[red]that folder has no profile.json[/red]  example: /use tests/flow_fixture")
+        _call(["run", str(project), "--run-id", state["last_run"]] + (["--start-from", args[1]] if len(args) > 1 else []))
     elif cmd == "verify":
         attack = "--attack" in args                      # also let the AI tester try to break it: minutes per function
         args = [x for x in args if x != "--attack"]
-        folder = args[0] if args else ""
-        author = args[1] if len(args) > 1 else "outside"
-        if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
-            console.print("[red]which folder holds the translation?[/red]  example: /verify fable-rust fable")
-        elif not any((Path(folder) / w).exists() or (ROOT / folder / w).exists()
-                     for c in cli._load_profile(Path(project))[1].values() for w in c["write_allowlist"]):
-            names = [w for c in cli._load_profile(Path(project))[1].values() for w in c["write_allowlist"]]
-            console.print(f"  no Rust translation of [bold]{Path(project).name}[/bold] in {folder}.  /verify wants a folder holding {names[0]} and the rest.")
-            console.print("  [dim]To migrate source code use /migrate. To see a finished run use /status.[/dim]")
+        if len(args) < 2:
+            console.print("  which file, and which folder holds its Rust?  example: /verify pricing.py their-rust")
+            return True
+        project, folder = PROJECTS / cli.project_name(args[0]), Path(args[1])
+        if not (project / "profile.json").exists():
+            console.print(f"  no tests have been built for {args[0]} yet. /migrate {args[0]} builds them.")
+        elif not any((folder / w).exists() for c in cli._load_profile(project)[1].values() for w in c["write_allowlist"]):
+            first = next(w for c in cli._load_profile(project)[1].values() for w in c["write_allowlist"])
+            console.print(f"  no Rust for {args[0]} in {folder}. It should hold {first} and the rest.")
         else:
-            state["last_run"] = _new_id(author)
+            state["last_run"] = _new_id("outside")
             _save(state)
-            _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]] + ([] if attack else ["--no-tester"]))
+            _call(["check", str(project), str(folder), "--author", "outside", "--run-id", state["last_run"]] + ([] if attack else ["--no-tester"]))
     elif cmd in ("status", "export"):
         run_id = args[0] if args else None
         if run_id is None:
@@ -388,11 +354,7 @@ def handle(line: str, state: dict) -> bool:
 
 
 def shell() -> int:
-    made = sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime) if WORK != ROOT and PROJECTS.exists() else []
-    state = {"project": str(made[0].parent if made else ROOT / "tests" / "flow_fixture"), **_load()}
-    if not (Path(state["project"]) / "profile.json").exists():
-        state["project"] = str(ROOT / "tests" / "flow_fixture")
-    state.setdefault("mode", "c" if _project_line(Path(state["project"])).startswith("C ") else "python")
+    state = {"mode": "python", **{k: v for k, v in _load().items() if k in ("mode", "last_run")}}
     console.clear()
     banner(state, animate=True)
     while True:
