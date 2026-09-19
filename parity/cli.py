@@ -363,7 +363,11 @@ def export(ns: argparse.Namespace) -> int:
     return 0 if exportable else 1
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv:
+        from .shell import shell
+        return shell()
     ap = argparse.ArgumentParser(prog="parity", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)
@@ -382,9 +386,9 @@ def main() -> None:
     p = sub.add_parser("evaluate"); p.add_argument("run_id"); p.add_argument("--profile-dir")
     p.add_argument("--force", action="store_true", help="re-run a single-use locked evaluation"); p.set_defaults(fn=evaluate)
     p = sub.add_parser("export"); p.add_argument("run_id"); p.add_argument("--profile-dir"); p.set_defaults(fn=export)
-    ns = ap.parse_args()
-    sys.exit(ns.fn(ns))
+    ns = ap.parse_args(argv)
+    return ns.fn(ns) or 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

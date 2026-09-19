@@ -37,4 +37,4 @@ for stream in (sys.stdout, sys.stderr):
 
 from .cli import main  # noqa: E402
 
-main()
+sys.exit(main())

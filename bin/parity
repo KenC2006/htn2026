@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Parity console for bash. Add this folder to PATH, then type: parity
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -W 2>/dev/null || pwd)"
+PYTHONPATH="$here" PYTHONUTF8=1 exec "$here/.venv-swarm/Scripts/python.exe" -m parity "$@"
