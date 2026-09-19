@@ -19,7 +19,22 @@ from pathlib import Path
 
 from . import templates
 from .engine.domain import ALPHABET, coerce, in_domain
-from .scan_python import Function, scan
+from .scan_python import Function
+from .scan_python import scan as scan_py
+
+
+def is_c(source: Path) -> bool:
+    """A .c file, or a folder of them with no Python in it."""
+    source = Path(source)
+    return source.suffix.lower() in (".c", ".h") or source.is_dir() and any(source.glob("*.c")) and not any(source.rglob("*.py"))
+
+
+def scan(source: Path) -> list[Function]:
+    """The scanner for this kind of source: C for a .c or .h file, Python otherwise."""
+    if is_c(source):
+        from .scan_c import scan as scan_c
+        return scan_c(source)
+    return scan_py(source)
 
 from .paths import PROJECTS, ROOT  # noqa: E402,F401
 RUST = {"int": "i64", "float": "f64", "str": "String", "bool": "bool"}
@@ -250,7 +265,7 @@ def default_expr(rust: str) -> str:
         return "Vec::new()"
     if rust.startswith("("):
         return "(" + ", ".join(default_expr(t.strip()) for t in rust[1:-1].split(",")) + ")"
-    return {"i64": "0", "f64": "0.0", "String": "String::new()", "bool": "false"}[rust]
+    return {"f64": "0.0", "String": "String::new()", "bool": "false"}.get(rust, "0")
 
 
 def _run_original(project: Path, cases: list[dict]) -> dict:
@@ -286,6 +301,8 @@ def make_cases(name: str, piece: str, rules: dict, n: int, seed: int, examples: 
 def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: bool = True, say=print) -> Path:
     """Build projects/<name>/ from a Python file or package folder. Returns the project folder."""
     source = Path(source).resolve()
+    from_c = is_c(source)
+    lang = "C" if from_c else "Python"
     functions = scan(source)
     wanted = [f for f in functions if f.ok and (chosen is None and not f.name.startswith("_") or chosen is not None and f.name in chosen)]
     if not wanted:
@@ -302,7 +319,11 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
 
     # the original, importable exactly as it is in its own package
     from .scan_python import _module_name
-    for file in {f.file for f in wanted}:
+    if from_c:                                    # the file and the headers beside it; gcc compiles it as it is
+        folder = source if source.is_dir() else source.parent
+        for file in ([source] if source.is_file() else sorted(folder.glob("*.c"))) + sorted(folder.glob("*.h")):
+            shutil.copy(file, project / "legacy" / file.name)
+    for file in {f.file for f in wanted} if not from_c else []:
         _, top = _module_name(file)
         package = file
         while package.parent != top:
@@ -312,17 +333,23 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
             shutil.copytree(package, dest, ignore=shutil.ignore_patterns("__pycache__", "tests", "test", "*.pyc", "*.so", "*.pyd"))
         elif package.is_file():
             shutil.copy(package, dest)
-    (project / "runners" / "source.py").write_text(templates.SOURCE_RUNNER, encoding="utf-8", newline="\n")
+    (project / "runners" / "source.py").write_text(templates.C_SOURCE_RUNNER if from_c else templates.SOURCE_RUNNER, encoding="utf-8", newline="\n")
+    if from_c:
+        (project / "runners" / "c_exports.json").write_text(json.dumps({"functions": {
+            f.name: {"file": f"legacy/{f.file.name}", "args": f.c_args, "returns": f.rust_returns,
+                     "signed": [f.rules[n].get("rust", "").startswith("i") for _, n, _ in f.c_args]} for f in wanted}}, indent=2), encoding="utf-8", newline="\n")
     (project / "runners" / "target.py").write_text(templates.TARGET_RUNNER, encoding="utf-8", newline="\n")
     (project / "runners" / "exports.json").write_text(json.dumps({f.name: f.module for f in wanted}, indent=2), encoding="utf-8", newline="\n")
 
-    say(f"asking the model for realistic input ranges for {len(wanted)} functions…" if use_ai and os.environ.get("API_KEY") else "using default input ranges")
+    use_ai = use_ai and not from_c                # a C signature already says the type and the range of every input
+    say(f"asking the model for realistic input ranges for {len(wanted)} functions…" if use_ai and os.environ.get("API_KEY") else
+        "input types and ranges come from the C signatures" if from_c else "using default input ranges")
     hints = suggest(wanted) if use_ai else {}
 
     kept, skipped = [], {}
     for f in wanted:
         hint = hints.get(f.name) if isinstance(hints.get(f.name), dict) else {}
-        rules = rules_for(f, hint)
+        rules = f.rules if from_c else rules_for(f, hint)
         if isinstance(rules, str):
             skipped[f.name] = rules
             continue
@@ -345,7 +372,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         elif len(ok) < 0.5 * len(first):
             skipped[f.name] = f"raises {errors[0] if errors else 'errors'} on most inputs in the range I settled on"
         else:
-            shape = shape_of([o["value"] for o in ok], f.returns_tuple)
+            shape = f.rust_returns if from_c else shape_of([o["value"] for o in ok], f.returns_tuple)
             if shape is None:
                 kinds = sorted({type(o["value"]).__name__ for o in ok})
                 skipped[f.name] = f"returns different kinds of value for different inputs ({', '.join(kinds)}), which one Rust type cannot hold"
@@ -370,7 +397,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
     arms, mods = "", ""
     for k in order:
         f, mod = k["f"], rust_name(k["f"].name)
-        params = [(p.name, rust_type(k["rules"][p.name]["type"], bool(k["rules"][p.name].get("nullable")))) for p in f.params]
+        params = [(p.name, k["rules"][p.name].get("rust") or rust_type(k["rules"][p.name]["type"], bool(k["rules"][p.name].get("nullable")))) for p in f.params]
         returns = f"Result<{k['returns']}, String>" if k["errors"] else k["returns"]
         signature = f"pub fn {mod}({', '.join(f'{rust_name(n)}: {t}' for n, t in params)}) -> {returns}"
         body = f"Ok({default_expr(k['returns'])})" if k["errors"] else default_expr(k["returns"])
@@ -384,7 +411,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         deps = [by_name[c]["id"] for c in f.calls if c in by_name]
         private = [c for c in f.calls if c not in by_name]
         view = "\n\n".join(f.needs + [f.source]) + "\n"
-        (project / "view" / f"{f.name}.py").write_text(view, encoding="utf-8", newline="\n")
+        (project / "view" / f"{f.name}{'.c' if from_c else '.py'}").write_text(view, encoding="utf-8", newline="\n")
         notes = (f"The frozen harness declares `mod {mod};` from target/{mod}.rs. No external crates, no `unsafe`, no file, network or process access. "
                  f"Exact signature: `{signature}`. ")
         if k["errors"]:
@@ -394,6 +421,10 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
             notes += "Call the already migrated " + ", ".join(f"`crate::{rust_name(c)}::{rust_name(c)}`" for c in f.calls if c in by_name) + " instead of re-implementing them. "
         if private:
             notes += f"The helpers {', '.join(private)} are shown with the source; port them as private functions inside your file. "
+        if from_c:
+            notes += ("A pointer and its length arrive as one Vec, as in the signature. C unsigned arithmetic wraps around silently and Rust panics on overflow: "
+                      "use wrapping_add, wrapping_mul, wrapping_sub and wrapping shifts wherever the C relies on it, and cast widths exactly as the C does. "
+                      "`int` and `long` are 32 bits in the original. ")
         notes += ("Text must match the original character for character, numbers exactly. "
                   "The signature is fixed and every input is inside the declared input range, so handle nothing beyond it. "
                   "The original runs with nothing configured: default locale, no translations loaded, no environment variables, no earlier calls. ")
@@ -410,7 +441,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         for c in k["dev"] + k["hidden"]:
             c["chunk_id"] = k["id"]
         (project / "chunks" / f"{k['id']}.json").write_text(json.dumps({
-            "schema_version": 1, "chunk_id": k["id"], "profile": name, "source_files": [f"view/{f.name}.py"], "exports": [f.name],
+            "schema_version": 1, "chunk_id": k["id"], "profile": name, "source_files": [f"view/{f.name}{'.c' if from_c else '.py'}"], "exports": [f.name],
             "write_allowlist": [f"target/{mod}.rs"], "depends_on": deps, "worker_notes": notes, "contract_ids": [f"behavior-{f.name}"],
             "limits": {"attempts": 3, "verify_seconds_per_attempt": 180}, "example_input": example, "input_domain": k["rules"],
             "origin": {"module": f.module, "file": str(f.file.name), "line": f.lineno}}, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -423,11 +454,11 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
     for k in order:
         (project / "contracts" / f"behavior-{k['f'].name}.json").write_text(json.dumps({
             "schema_version": 1, "contract_id": f"behavior-{k['f'].name}", "version": 1,
-            "behavior": f"For every input inside the declared input range, the Rust `{k['f'].name}` returns exactly what the Python original returns: "
-                        "the same numbers, the same text character for character, and Err(<exception class name>) where the original raises.",
+            "behavior": f"For every input inside the declared input range, the Rust `{k['f'].name}` returns exactly what the {lang} original returns: "
+                        "the same numbers, the same text character for character" + ("." if from_c else ", and Err(<exception class name>) where the original raises."),
             "guidance": []}, indent=2) + "\n", encoding="utf-8", newline="\n")
     (project / "profile.json").write_text(json.dumps({
-        "schema_version": 1, "profile": name, "languages": {"source": "Python", "target": "Rust"},
+        "schema_version": 1, "profile": name, "languages": {"source": lang, "target": "Rust"},
         "run_source": ["python", "runners/source.py"], "run_target": ["python", "runners/target.py"],
         "build_target": ["rustc", "-O", "harness/main.rs", "-o", "parity_target.exe"], "verify_seconds": 180,
         "frozen": ["profile.json", "chunks/*", "contracts/*", "legacy/*", "legacy/*/*", "legacy/*/*/*", "view/*", "harness/*", "runners/*", "cases.jsonl", "locked/*"],

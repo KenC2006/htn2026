@@ -108,6 +108,11 @@ fn items(j: &J, n: usize) -> &Vec<J> { match j { J::Arr(a) if a.len() == n => a,
 impl<A: FromJ, B: FromJ> FromJ for (A, B) { fn from_j(j: &J) -> Self { let a = items(j, 2); (A::from_j(&a[0]), B::from_j(&a[1])) } }
 impl<A: FromJ, B: FromJ, C: FromJ> FromJ for (A, B, C) { fn from_j(j: &J) -> Self { let a = items(j, 3); (A::from_j(&a[0]), B::from_j(&a[1]), C::from_j(&a[2])) } }
 impl<A: FromJ, B: FromJ, C: FromJ, D: FromJ> FromJ for (A, B, C, D) { fn from_j(j: &J) -> Self { let a = items(j, 4); (A::from_j(&a[0]), B::from_j(&a[1]), C::from_j(&a[2]), D::from_j(&a[3])) } }
+macro_rules! whole_numbers { ($($t:ty),*) => { $(
+    impl FromJ for $t { fn from_j(j: &J) -> $t { match j { J::Num(s) => s.parse::<$t>().expect("a whole number of this width"), _ => panic!("expected an integer") } } }
+    impl ToJ for $t { fn to_j(&self) -> String { self.to_string() } }
+)* } }
+whole_numbers!(u8, u16, u32, u64, i8, i16, i32, usize);
 impl<T: ToJ> ToJ for Result<T, String> { fn to_j(&self) -> String { match self { Ok(v) => format!("{{\"ok\": {}}}", v.to_j()), Err(e) => format!("{{\"error\": {}}}", e.as_str().to_j()) } } }
 '''
 
@@ -189,6 +194,99 @@ with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
         obs["duration_ms"] = (time.perf_counter() - t) * 1000
         out.write(json.dumps(obs) + "\n")
 '''
+
+# runners/source.py for a C original: compiles it with gcc next to a small generated driver, then feeds it the cases.
+C_SOURCE_RUNNER = r"""# Frozen. Compiles the original C and runs its functions on the cases, recording what they return.
+import argparse, json, subprocess, tempfile, time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = json.loads((ROOT / "runners" / "c_exports.json").read_text(encoding="utf-8"))
+SIGNED = ("i8", "i16", "i32", "i64")
+
+
+def driver(file: str) -> str:
+    out = ['#define __USE_MINGW_ANSI_STDIO 1', '#include <stdio.h>', '#include <stdlib.h>', '#include <string.h>', '#include <stdint.h>', '#include <stdbool.h>',
+           '#define main parity_original_main', f'#include "{(ROOT / file).as_posix()}"', '#undef main',
+           'static unsigned char buf[8][70000];',
+           'static size_t unhex(const char *s, unsigned char *o) { size_t n = 0; if (s[0] == \'-\') return 0; while (s[0] && s[1]) { unsigned v; sscanf(s, "%2x", &v); o[n++] = (unsigned char)v; s += 2; } return n; }',
+           'int main(void) { static char line[400000]; char *tok[16];',
+           '  while (fgets(line, sizeof line, stdin)) { int n = 0; line[strcspn(line, "\\r\\n")] = 0;',
+           '    for (char *p = strtok(line, "\\t"); p && n < 16; p = strtok(NULL, "\\t")) tok[n++] = p;',
+           '    if (n < 2) continue;']
+    for name, f in SPEC["functions"].items():
+        if f["file"] != file:
+            continue
+        pre, args = [], []
+        for i, (kind, _, ctype) in enumerate(f["args"]):
+            t = f"tok[{i + 2}]"
+            if kind == "int":
+                args.append(f"({ctype})strtoull({t}, NULL, 10)" if not f["signed"][i] else f"({ctype})strtoll({t}, NULL, 10)")
+            elif kind == "float":
+                args.append(f"strtod({t}, NULL)")
+            elif kind == "array":
+                elem, length = ctype.split("|")
+                pre.append(f"static {elem} a{i}[4096]; size_t n{i} = 0; if ({t}[0] != '-') for (char *q = {t}; *q;) {{ a{i}[n{i}++] = ({elem})strtoull(q, &q, 10); if (*q == ',') q++; }}")
+                args += [f"a{i}", f"({length})n{i}"]
+            elif kind == "bytes":
+                pre.append(f"size_t n{i} = unhex({t}, buf[{i}]);")
+                args += [f"(const void *)buf[{i}]", f"({ctype})n{i}"]
+            else:
+                pre.append(f"size_t n{i} = unhex({t}, buf[{i}]); buf[{i}][n{i}] = 0;")
+                args.append(f"(const char *)buf[{i}]")
+        r = f["returns"]
+        show = ('"%s\\t%.17g\\n", tok[0], (double)' if r == "f64" else '"%s\\t%lld\\n", tok[0], (long long)' if r in SIGNED or r == "bool"
+                else '"%s\\t%llu\\n", tok[0], (unsigned long long)')
+        out.append(f'    if (!strcmp(tok[1], "{name}")) {{ {" ".join(pre)} printf({show}{name}({", ".join(args)})); fflush(stdout); continue; }}')
+    out += ['  }', '  return 0; }']
+    return "\n".join(out) + "\n"
+
+
+def encode(kind, v):
+    if kind == "int":
+        return str(int(v))
+    if kind == "float":
+        return repr(float(v))
+    if kind == "array":
+        return ",".join(str(int(x)) for x in v) or "-"
+    data = bytes(v) if kind == "bytes" else str(v).encode("utf-8")
+    return data.hex() or "-"
+
+
+ap = argparse.ArgumentParser(); ap.add_argument("--cases"); ap.add_argument("--out"); ns = ap.parse_args()
+cases = [json.loads(x) for x in open(ns.cases, encoding="utf-8") if x.strip()]
+work = Path(tempfile.mkdtemp(prefix="parity_c_"))
+t = time.perf_counter()
+got, failed = {}, {}
+for n, file in enumerate(sorted({f["file"] for f in SPEC["functions"].values()})):      # one program per C file, so files cannot clash
+    lines = ""
+    for c in cases:
+        f = SPEC["functions"].get(c["export"])
+        if f and f["file"] == file:
+            lines += "\t".join([c["case_id"], c["export"]] + [encode(kind, c["input"][name]) for kind, name, _ in f["args"]]) + "\n"
+    if not lines:
+        continue
+    (work / f"driver{n}.c").write_text(driver(file), encoding="utf-8")
+    built = subprocess.run(["gcc", "-std=gnu99", "-O1", "-w", "-I", str((ROOT / file).parent), "-o", str(work / f"oracle{n}.exe"), str(work / f"driver{n}.c")],
+                           capture_output=True, text=True)
+    if built.returncode != 0:
+        failed[file] = built.stderr[-250:]
+        continue
+    ran = subprocess.run([str(work / f"oracle{n}.exe")], input=lines, capture_output=True, text=True, timeout=120)
+    got.update(dict(x.split("\t", 1) for x in ran.stdout.splitlines() if "\t" in x))
+ms = (time.perf_counter() - t) * 1000 / max(len(cases), 1)
+with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
+    for c in cases:
+        obs = {"schema_version": 1, "case_id": c["case_id"], "value": None, "error_code": None, "diagnostics": "", "duration_ms": ms}
+        text, r = got.get(c["case_id"]), (SPEC["functions"].get(c["export"]) or {}).get("returns")
+        if (SPEC["functions"].get(c["export"]) or {}).get("file") in failed:
+            obs.update(status="crash", diagnostics=("the original C did not compile: " + failed[SPEC["functions"][c["export"]]["file"]]))
+        elif text is None:
+            obs.update(status="crash", diagnostics="the original C crashed or printed nothing for this input")
+        else:
+            obs.update(status="ok", value=float(text) if r == "f64" else bool(int(text)) if r == "bool" else int(text))
+        out.write(json.dumps(obs) + "\n")
+"""
 
 MAIN_RS_HEAD = '''// Frozen harness, generated by `parity new`. Agents only ever write files under target/.
 #![forbid(unsafe_code)]

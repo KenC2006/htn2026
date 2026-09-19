@@ -163,7 +163,7 @@ def find_source(what: str) -> Path:
 
 def new(ns: argparse.Namespace) -> int:
     from .newproject import create
-    from .scan_python import scan
+    from .newproject import scan
     source = find_source(ns.source)
     functions = scan(source)
     can = [f for f in functions if f.ok]

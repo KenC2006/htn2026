@@ -87,7 +87,7 @@ def new_project(state: dict, args: list[str]) -> None:
     """Scan real code, tick the functions to migrate, build the project."""
     import re
     from .newproject import create
-    from .scan_python import scan
+    from .newproject import scan
     if not args:
         console.print("  what code?  [dim]a .py file, a folder, or a module name, e.g.[/dim]  /migrate humanize.number")
         return
