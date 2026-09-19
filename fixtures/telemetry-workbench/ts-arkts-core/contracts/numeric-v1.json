@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract_id": "numeric-v1",
+  "version": 1,
+  "behavior": "Finite bounded integers only; no signed-zero distinction. No mutation or side effects. JSON numbers and arrays only.",
+  "guidance": [],
+  "evidence_refs": []
+}

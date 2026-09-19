@@ -1,0 +1,131 @@
+{"case_id": "dev-T1-0000", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": -1}}
+{"case_id": "dev-T1-0001", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 0}}
+{"case_id": "dev-T1-0002", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 1}}
+{"case_id": "dev-T1-0003", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 10}}
+{"case_id": "dev-T1-0004", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 10000}}
+{"case_id": "dev-T1-0005", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": -1}}
+{"case_id": "dev-T1-0006", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 0}}
+{"case_id": "dev-T1-0007", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 1}}
+{"case_id": "dev-T1-0008", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 10}}
+{"case_id": "dev-T1-0009", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 10000}}
+{"case_id": "dev-T1-0010", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": -1}}
+{"case_id": "dev-T1-0011", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 0}}
+{"case_id": "dev-T1-0012", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 1}}
+{"case_id": "dev-T1-0013", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 10}}
+{"case_id": "dev-T1-0014", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 10000}}
+{"case_id": "dev-T1-0015", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": -1}}
+{"case_id": "dev-T1-0016", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 0}}
+{"case_id": "dev-T1-0017", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 1}}
+{"case_id": "dev-T1-0018", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 10}}
+{"case_id": "dev-T1-0019", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 10000}}
+{"case_id": "dev-T1-0020", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": -1}}
+{"case_id": "dev-T1-0021", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 0}}
+{"case_id": "dev-T1-0022", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 1}}
+{"case_id": "dev-T1-0023", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 10}}
+{"case_id": "dev-T1-0024", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 10000}}
+{"case_id": "dev-T1-0025", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": -1}}
+{"case_id": "dev-T1-0026", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 0}}
+{"case_id": "dev-T1-0027", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 1}}
+{"case_id": "dev-T1-0028", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 10}}
+{"case_id": "dev-T1-0029", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 10000}}
+{"case_id": "dev-T1-0030", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": -1}}
+{"case_id": "dev-T1-0031", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 0}}
+{"case_id": "dev-T1-0032", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 1}}
+{"case_id": "dev-T1-0033", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 10}}
+{"case_id": "dev-T1-0034", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 10000}}
+{"case_id": "dev-T1-0035", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": -1}}
+{"case_id": "dev-T1-0036", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 0}}
+{"case_id": "dev-T1-0037", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 1}}
+{"case_id": "dev-T1-0038", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 10}}
+{"case_id": "dev-T1-0039", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 10000}}
+{"case_id": "dev-T1-0040", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": -1}}
+{"case_id": "dev-T1-0041", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 0}}
+{"case_id": "dev-T1-0042", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 1}}
+{"case_id": "dev-T1-0043", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 10}}
+{"case_id": "dev-T1-0044", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 10000}}
+{"case_id": "dev-T1-0045", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": -1}}
+{"case_id": "dev-T1-0046", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 0}}
+{"case_id": "dev-T1-0047", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 1}}
+{"case_id": "dev-T1-0048", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 10}}
+{"case_id": "dev-T1-0049", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 10000}}
+{"case_id": "dev-T2-0050", "chunk_id": "T2", "input": {"value": 0, "lower": 0, "upper": 0}}
+{"case_id": "dev-T2-0051", "chunk_id": "T2", "input": {"value": -1, "lower": 0, "upper": 1}}
+{"case_id": "dev-T2-0052", "chunk_id": "T2", "input": {"value": 2, "lower": 0, "upper": 1}}
+{"case_id": "dev-T2-0053", "chunk_id": "T2", "input": {"value": 0, "lower": 1, "upper": -1}}
+{"case_id": "dev-T2-0054", "chunk_id": "T2", "input": {"value": -1000000, "lower": -1000000, "upper": 1000000}}
+{"case_id": "dev-T3-0055", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": -1}}
+{"case_id": "dev-T3-0056", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 0}}
+{"case_id": "dev-T3-0057", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 1}}
+{"case_id": "dev-T3-0058", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 10}}
+{"case_id": "dev-T3-0059", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": -1}}
+{"case_id": "dev-T3-0060", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 0}}
+{"case_id": "dev-T3-0061", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 1}}
+{"case_id": "dev-T3-0062", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 10}}
+{"case_id": "dev-T3-0063", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": -1}}
+{"case_id": "dev-T3-0064", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 0}}
+{"case_id": "dev-T3-0065", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 1}}
+{"case_id": "dev-T3-0066", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 10}}
+{"case_id": "dev-T3-0067", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": -1}}
+{"case_id": "dev-T3-0068", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 0}}
+{"case_id": "dev-T3-0069", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 1}}
+{"case_id": "dev-T3-0070", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 10}}
+{"case_id": "dev-T1-0071", "chunk_id": "T1", "input": {"timestampMs": 328524, "widthMs": 1609}}
+{"case_id": "dev-T2-0072", "chunk_id": "T2", "input": {"value": 691109, "lower": -263999, "upper": -707630}}
+{"case_id": "dev-T3-0073", "chunk_id": "T3", "input": {"timestamps": [-156470, 510406, 175217, -412351, -883731, 835965, -868773, -102379, -805050, 128131, -952869, 971399, -333050, 235122, 439508, -950756, -196046, -992043, -923868, 413779, 381022], "widthMs": 8188}}
+{"case_id": "dev-T1-0074", "chunk_id": "T1", "input": {"timestampMs": 792318, "widthMs": 3782}}
+{"case_id": "dev-T2-0075", "chunk_id": "T2", "input": {"value": 121304, "lower": -950599, "upper": -439026}}
+{"case_id": "dev-T3-0076", "chunk_id": "T3", "input": {"timestamps": [473651, -737513, -318298, -11151, -792015, 662483, -787245, -825288, 811312, -991248], "widthMs": 219}}
+{"case_id": "dev-T1-0077", "chunk_id": "T1", "input": {"timestampMs": 871156, "widthMs": 3415}}
+{"case_id": "dev-T2-0078", "chunk_id": "T2", "input": {"value": 744958, "lower": -457562, "upper": -674546}}
+{"case_id": "dev-T3-0079", "chunk_id": "T3", "input": {"timestamps": [519032, 35593, -233456, -467235, -975547], "widthMs": 6925}}
+{"case_id": "dev-T1-0080", "chunk_id": "T1", "input": {"timestampMs": 434532, "widthMs": 6957}}
+{"case_id": "dev-T2-0081", "chunk_id": "T2", "input": {"value": 894461, "lower": 190030, "upper": 68562}}
+{"case_id": "dev-T3-0082", "chunk_id": "T3", "input": {"timestamps": [-786697, -857435, 291176, -826674, 776966, 609568, -537036, -613188, -905555, -73225, 571039, 829791, 610728, -540276], "widthMs": 3034}}
+{"case_id": "dev-T1-0083", "chunk_id": "T1", "input": {"timestampMs": 168839, "widthMs": 9366}}
+{"case_id": "dev-T2-0084", "chunk_id": "T2", "input": {"value": 529485, "lower": -2606, "upper": -126591}}
+{"case_id": "dev-T3-0085", "chunk_id": "T3", "input": {"timestamps": [154966, 806551, 582049, 994675, -896439, 860672, 129799, 207713, 814650, -346224, -621081], "widthMs": 3035}}
+{"case_id": "dev-T1-0086", "chunk_id": "T1", "input": {"timestampMs": -80001, "widthMs": 542}}
+{"case_id": "dev-T2-0087", "chunk_id": "T2", "input": {"value": 254355, "lower": 508263, "upper": -586512}}
+{"case_id": "dev-T3-0088", "chunk_id": "T3", "input": {"timestamps": [-828190, 671145, 382272, 611042, 195286, 269504, -233272], "widthMs": 8712}}
+{"case_id": "dev-T1-0089", "chunk_id": "T1", "input": {"timestampMs": 616505, "widthMs": 8791}}
+{"case_id": "dev-T2-0090", "chunk_id": "T2", "input": {"value": -832721, "lower": -226282, "upper": -866331}}
+{"case_id": "dev-T3-0091", "chunk_id": "T3", "input": {"timestamps": [-144071, -676435, -369473, 508536, 172930, 723911, -162606, 577301, 974936, 46117, -579509], "widthMs": 3164}}
+{"case_id": "dev-T1-0092", "chunk_id": "T1", "input": {"timestampMs": -832257, "widthMs": 9000}}
+{"case_id": "dev-T2-0093", "chunk_id": "T2", "input": {"value": 762776, "lower": -286565, "upper": -799995}}
+{"case_id": "dev-T3-0094", "chunk_id": "T3", "input": {"timestamps": [-355589, 82358, -354510, 452168, -526084, 416551, -595614, -397992, 664821, 394625, 450097, 797188], "widthMs": 6253}}
+{"case_id": "dev-T1-0095", "chunk_id": "T1", "input": {"timestampMs": 909317, "widthMs": 6438}}
+{"case_id": "dev-T2-0096", "chunk_id": "T2", "input": {"value": -45558, "lower": -446207, "upper": -833294}}
+{"case_id": "dev-T3-0097", "chunk_id": "T3", "input": {"timestamps": [471140, 156258, -963544, 263822, -67006, 652120, -969974, -966326, 518856, 316028, 134980, -132300, -287895, -343465, -902841, 508720, -867844, 741994, 450691, -229305, -205581, -502225, -517540, 617799], "widthMs": 816}}
+{"case_id": "dev-T1-0098", "chunk_id": "T1", "input": {"timestampMs": -204454, "widthMs": 3007}}
+{"case_id": "dev-T2-0099", "chunk_id": "T2", "input": {"value": -191066, "lower": 679680, "upper": -505916}}
+{"case_id": "dev-T3-0100", "chunk_id": "T3", "input": {"timestamps": [348217, -454656, 507272, -947623, 763876, -337371, 146846, -184366, -739484], "widthMs": 2602}}
+{"case_id": "dev-T1-0101", "chunk_id": "T1", "input": {"timestampMs": 690109, "widthMs": 3573}}
+{"case_id": "dev-T2-0102", "chunk_id": "T2", "input": {"value": -374896, "lower": 92231, "upper": -580954}}
+{"case_id": "dev-T3-0103", "chunk_id": "T3", "input": {"timestamps": [-637623, -632113, 37144, -858294, -506306, -770531, 203627, 770463, 900640, 297092, -180572, 998045, -506619, 955224, 976868, -776288, -788806, 167741, -271704], "widthMs": 734}}
+{"case_id": "dev-T1-0104", "chunk_id": "T1", "input": {"timestampMs": 229493, "widthMs": 679}}
+{"case_id": "dev-T2-0105", "chunk_id": "T2", "input": {"value": -662803, "lower": -605506, "upper": 502408}}
+{"case_id": "dev-T3-0106", "chunk_id": "T3", "input": {"timestamps": [-521883, -810818], "widthMs": 1787}}
+{"case_id": "dev-T1-0107", "chunk_id": "T1", "input": {"timestampMs": 340615, "widthMs": 1251}}
+{"case_id": "dev-T2-0108", "chunk_id": "T2", "input": {"value": 227493, "lower": 98366, "upper": -853446}}
+{"case_id": "dev-T3-0109", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 6756}}
+{"case_id": "dev-T1-0110", "chunk_id": "T1", "input": {"timestampMs": 31667, "widthMs": 6473}}
+{"case_id": "dev-T2-0111", "chunk_id": "T2", "input": {"value": -612219, "lower": -830214, "upper": -313633}}
+{"case_id": "dev-T3-0112", "chunk_id": "T3", "input": {"timestamps": [562593, 549024, -631670, 230309, 4266, 21047, 896160, 549693, 18118, 908594, 230586, 204680, -736786, 457177, 124863, 94099, -450007, -903733, -951494], "widthMs": 6563}}
+{"case_id": "dev-T1-0113", "chunk_id": "T1", "input": {"timestampMs": -933344, "widthMs": 1943}}
+{"case_id": "dev-T2-0114", "chunk_id": "T2", "input": {"value": 297312, "lower": -453474, "upper": -989871}}
+{"case_id": "dev-T3-0115", "chunk_id": "T3", "input": {"timestamps": [-382644, 800118, 653991, -321271, 448170, -477034, 328578, -788754, -318041, 772661, 67713, -435689, 324816, -372515, -807938, -268002, 559574, -110509, 791151, -829119, -828702, -246581, 126222], "widthMs": 8574}}
+{"case_id": "dev-T1-0116", "chunk_id": "T1", "input": {"timestampMs": -815033, "widthMs": 3287}}
+{"case_id": "dev-T2-0117", "chunk_id": "T2", "input": {"value": 275412, "lower": 483460, "upper": -70633}}
+{"case_id": "dev-T3-0118", "chunk_id": "T3", "input": {"timestamps": [-500440, 900516, -799437, -67470, -251537, -34271, 912739, -301533, -260211, 554718, -603492], "widthMs": 7866}}
+{"case_id": "dev-T1-0119", "chunk_id": "T1", "input": {"timestampMs": -738861, "widthMs": 5697}}
+{"case_id": "dev-T2-0120", "chunk_id": "T2", "input": {"value": 120938, "lower": -941020, "upper": -709300}}
+{"case_id": "dev-T3-0121", "chunk_id": "T3", "input": {"timestamps": [26356, -253893, -28872, -281997, 81384, -78139, -826472, -15809, 135869, 688616, 767964, -444596, -44737, -921904, 843959, 244621, 922202, -598477, 361197, 127687, 730669, 760261, -421291, 414330, 903432, -764961, 787098, -526359], "widthMs": 112}}
+{"case_id": "dev-T1-0122", "chunk_id": "T1", "input": {"timestampMs": 287737, "widthMs": 1409}}
+{"case_id": "dev-T2-0123", "chunk_id": "T2", "input": {"value": 576342, "lower": -912, "upper": 171139}}
+{"case_id": "dev-T3-0124", "chunk_id": "T3", "input": {"timestamps": [497022, 595971, -73468, 609461, -609176, -647506, -898434, -826539, -72370, -376023, -946170, -204450], "widthMs": 3780}}
+{"case_id": "dev-T1-0125", "chunk_id": "T1", "input": {"timestampMs": -622536, "widthMs": 2223}}
+{"case_id": "dev-T2-0126", "chunk_id": "T2", "input": {"value": -206873, "lower": -887408, "upper": 515282}}
+{"case_id": "dev-T3-0127", "chunk_id": "T3", "input": {"timestamps": [-625700, -734240, -843585, -568192, 750879, -911159, -823097, -645566, -140385, -540015, -247767, 695485, 266234, 562753, 593778, 40397, -716839, 851382, -638055, -516232, 746011, -865509, 708234, -438490], "widthMs": 6537}}
+{"case_id": "dev-T1-0128", "chunk_id": "T1", "input": {"timestampMs": 767392, "widthMs": 5769}}
+{"case_id": "dev-T2-0129", "chunk_id": "T2", "input": {"value": 461898, "lower": 52455, "upper": 306995}}
+{"case_id": "dev-T3-0130", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 3368}}
