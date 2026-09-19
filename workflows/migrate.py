@@ -36,6 +36,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAX_WORKERS = 2
 MAX_STALE_ROUNDS = 2
 
+REPORT_SCHEMA = {"type": "object", "properties": {"chunk_id": {"type": "string"}, "summary": {"type": "string"}}, "required": ["summary"]}
+
 CANDIDATE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -81,6 +83,11 @@ async def run(args):
     resuming = (run_dir / "events.jsonl").exists()
     if resuming and not args.get("resume"):
         raise ValueError(f"run {run_dir.name} already exists; pass resume or pick another run_id")
+    # The run works on its own copy of the cases, so inputs the tester finds can be added for good.
+    run_dir.mkdir(parents=True, exist_ok=True)
+    if not (run_dir / "cases.jsonl").exists():
+        (run_dir / "cases.jsonl").write_bytes(cases_path.read_bytes())
+    cases_path = run_dir / "cases.jsonl"
     events = EventLog(run_dir, run_dir.name)
     fixture_hash = gate.freeze(profile_dir)["fixture_hash"]
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)
@@ -95,6 +102,20 @@ async def run(args):
     blocked = ctx.blocked
     TEAM.reset(run_dir.name)
     ctx.register_team(steward_model=args.get("steward_model") or os.environ.get("REVIEWER_MODEL"))
+    use_tester = args.get("tester", True)
+    if use_tester:   # a different model family from the workers on purpose: the attacker should not share the author's blind spots
+        ctx.register_tester(model=os.environ.get("TESTER_MODEL") or os.environ.get("REVIEWER_MODEL"))
+
+    async def hunt(cid: str, candidate: dict, overlay: dict, label: str) -> int:
+        """The tester attacks a candidate that passed the fixed cases. Inputs it finds become permanent cases."""
+        ctx.under_test[cid], ctx.tester_calls[cid], ctx.found[cid] = (candidate, overlay), 0, []
+        events.emit("tester.started", actor="scheduler", chunk_id=cid, payload={"label": label})
+        report = await agent(ctx.tester_query(cid, candidate), schema=REPORT_SCHEMA, label=f"tester-{label}", options={"member": "tester"})
+        ctx.under_test.pop(cid, None)
+        found = ctx.found.pop(cid, [])
+        events.emit("tester.finished", actor="tester", chunk_id=cid,
+                    payload={"found": len(found), "case_ids": [c["case_id"] for c in found], "summary": ((report or {}).get("summary") or "")[:400]})
+        return len(found)
 
     # ── Plan: an agent proposes the dependency order and the semantic risks; plain code checks the plan; the
     # steward settles the risks BEFORE any worker starts, so workers begin with guidance instead of going stale later.
@@ -195,6 +216,11 @@ async def run(args):
                                         attempt_id=f"{cid}:{label}", events=events, overlay=overlay,
                                         current_contract_hashes=ledger.hashes())
             log(f"{cid} {label}: {v.status} ({v.detail[:160]})")
+            if v.accepted and use_tester and await hunt(cid, candidate, overlay, label):
+                # the found inputs are in the case file now: the normal check produces the rejection and its counterexample
+                v = await asyncio.to_thread(gate.check, profile_dir, cid, candidate, cases_path, run_dir,
+                                            attempt_id=f"{cid}:{label}-after-tester", events=events, overlay=overlay,
+                                            current_contract_hashes=ledger.hashes())
             if v.accepted:
                 return candidate
             if v.status == "STALE":

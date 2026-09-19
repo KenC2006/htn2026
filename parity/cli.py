@@ -170,9 +170,21 @@ def check(ns: argparse.Namespace) -> int:
     events = EventLog(run_dir, run_id)
     gate.freeze(profile_dir)
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)
-    integ = Integrator(profile_dir, run_dir, profile_dir / "cases.jsonl", ledger, events)
+    cases_path = run_dir / "cases.jsonl"          # the run's own copy: inputs the tester finds are added to it
+    cases_path.write_bytes((profile_dir / "cases.jsonl").read_bytes())
+    integ = Integrator(profile_dir, run_dir, cases_path, ledger, events)
     events.emit("run.started", actor="scheduler", profile=profile["profile"],
                 payload={"chunks": list(chunks), "profile_dir": str(profile_dir), "mode": f"outside: {ns.author}", "reused": []})
+    ctx = None
+    if not ns.no_tester and os.environ.get("API_KEY"):
+        import asyncio
+        import logging
+        logging.disable(logging.WARNING)          # the agent framework logs every step to the console
+        from .engine.tools import RunContext
+        from .framework.team import TEAM
+        ctx = RunContext(profile_dir, run_dir, cases_path, profile, chunks, ledger, integ, events)
+        TEAM.reset(run_id)
+        ctx.register_tester(model=os.environ.get("TESTER_MODEL") or os.environ.get("REVIEWER_MODEL"))
     blocked, todo = {}, list(chunks)
     while todo:
         ready = [c for c in todo if set(chunks[c].get("depends_on", [])) <= set(integ.accepted) | set(blocked)]
@@ -188,8 +200,22 @@ def check(ns: argparse.Namespace) -> int:
                     "contract_hashes": ledger.hashes(chunks[cid].get("contract_ids", []))}
             for f in cand["files"]:
                 events.emit("worker.wrote", actor=ns.author, chunk_id=cid, payload=f)
-            v = gate.check(profile_dir, cid, cand, profile_dir / "cases.jsonl", run_dir, attempt_id=f"{cid}:{ns.author}-1",
-                           current_contract_hashes=ledger.hashes(), events=events, overlay=integ.files_of(chunks[cid].get("depends_on", [])))
+            overlay = integ.files_of(chunks[cid].get("depends_on", []))
+            v = gate.check(profile_dir, cid, cand, cases_path, run_dir, attempt_id=f"{cid}:{ns.author}-1",
+                           current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
+            if v.accepted and ctx is not None:     # the tester attacks what passed the fixed cases
+                ctx.under_test[cid], ctx.tester_calls[cid], ctx.found[cid] = (cand, overlay), 0, []
+                events.emit("tester.started", actor="scheduler", chunk_id=cid, payload={})
+                try:
+                    _, _, report = asyncio.run(TEAM.ask("tester", ctx.tester_query(cid, cand)))
+                except Exception as e:  # noqa: BLE001
+                    report = {"summary": f"tester failed: {e}"}
+                found = ctx.found.pop(cid, [])
+                events.emit("tester.finished", actor="tester", chunk_id=cid,
+                            payload={"found": len(found), "summary": ((report or {}).get("summary") or "")[:400]})
+                if found:
+                    v = gate.check(profile_dir, cid, cand, cases_path, run_dir, attempt_id=f"{cid}:{ns.author}-1-after-tester",
+                                   current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
             if v.accepted:
                 v = integ.integrate(cid, cand)
             if not v.accepted:
@@ -379,7 +405,8 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=run)
     p = sub.add_parser("check", help="check a translation written by anyone with the same checker and hidden test set")
     p.add_argument("profile_dir"); p.add_argument("candidate_dir"); p.add_argument("--author", default="outside")
-    p.add_argument("--run-id"); p.add_argument("--no-watch", action="store_true"); p.set_defaults(fn=check)
+    p.add_argument("--run-id"); p.add_argument("--no-watch", action="store_true")
+    p.add_argument("--no-tester", action="store_true", help="fixed cases and hidden test set only, no AI tester"); p.set_defaults(fn=check)
     p = sub.add_parser("watch"); p.add_argument("run_id"); p.add_argument("--replay", action="store_true", help="play a finished run back")
     p.add_argument("--speed", type=float, default=1.0); p.set_defaults(fn=watch)
     p = sub.add_parser("status"); p.add_argument("run_id"); p.set_defaults(fn=status)

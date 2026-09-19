@@ -19,6 +19,7 @@ We do **not** use WorkSwarm's stock `TeamWorkerBackend`. Its workers inherit gen
 |---|---|---|---|
 | `planner` (one, runs first) | `MODEL_NAME` | `read_source`, `submit_plan` (a deterministic check rejects plans that drop a chunk, drop a declared dependency or contain a cycle, and returns the reasons to the agent) | write code, rule on behavior, override manifest dependencies |
 | `worker-<chunk>` (one per chunk, parallel) | `MODEL_NAME` (Qwen3 Coder) | `ask_steward`, `check_compile`, `submit_candidate` | run tests, see cases or expected outputs, read or write files, touch other chunks |
+| `tester` (one, serial, remembers which attacks worked) | `REVIEWER_MODEL` (not the workers' model family) | `try_inputs` (runs inputs it invents through BOTH the original and the new code), `submit_report` | write expected outputs (the original supplies them), use inputs outside the declared range (plain code refuses them), pass or fail anything itself: an input it finds becomes a permanent case and the normal gate does the rejecting |
 | `steward` (one, serial, remembers every ruling) | `REVIEWER_MODEL` (Kimi, a different model family on purpose) | `probe_source` (runs the frozen ORIGINAL on inputs it chooses), `submit_ruling` | change expected behavior, issue a pass, see candidates' test results beyond the one counterexample it is sent |
 
 Not agents, on purpose (deterministic code in `parity/engine/`): scheduler, contract service, gate, integrator.
@@ -30,7 +31,8 @@ Not agents, on purpose (deterministic code in `parity/engine/`): scheduler, cont
 2. **Investigation with tools.** The steward probes the original implementation on edge cases (`tool.probe_source`), then rules (`decision.recorded`). The contract service accepts only `implementation_clarification`; a `behavior_change` blocks the chunk for a human.
 3. **One agent's finding changes other agents' work.** A ruling bumps the contract version. Every chunk using that contract, and everything depending on them, is affected: candidates still being written under the old version are rejected as `STALE` and sent back; accepted receipts are invalidated until revalidated. Later workers receive the guidance up front.
 4. **Verification nobody can talk their way past.** The gate builds with the real compiler and compares old vs new outputs case by case. On a behavioral rejection the scheduler sends the counterexample to the steward, which can turn it into guidance for everyone.
-5. **Memory.** Each member keeps its conversation for the whole run: a worker's second attempt remembers its first; the steward answers repeat questions from its earlier rulings (`no_decision`).
+5. **Agents working against each other.** Every candidate that passes the fixed cases is attacked by the tester, which reads the new code and hunts for inputs where it disagrees with the original (`tester.started`, `tool.try_inputs`). What it finds joins the case set for good, so the bar only goes up. It caught a candidate that hardcoded the visible test answers on its first try.
+6. **Memory.** Each member keeps its conversation for the whole run: a worker's second attempt remembers its first; the steward answers repeat questions from its earlier rulings (`no_decision`).
 
 ## Reuse
 

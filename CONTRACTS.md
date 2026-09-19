@@ -87,6 +87,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 
 - `worker_notes` (optional string): what the worker must know about your scaffold, e.g. exact signature, module layout, "must call crate::p1::dedupe_latest". The worker sees the source files, these notes, the contracts, and accepted dependency files. Nothing else.
 - `example_input` (object): one hand-written input in the same shape as your case `input`s, e.g. `{"ts": 2500, "width": 1000}`. The steward uses it to know how to call `probe_source`. Do not copy a real test case.
+- `input_domain` (object, strongly recommended): the allowed range per input key, e.g. `{"ts": {"min": -1000000000000, "max": 1000000000000}, "width": {"min": 1, "max": 86400000}}` (`min`, `max` for numbers, `max_len` for strings and lists). The tester agent attacks every candidate with inputs it invents; plain code refuses anything outside this range. Without it the tester will break correct code with inputs you never meant to support. Inputs on which a candidate fails are added to the run's own copy of the cases (`runs/<id>/cases.jsonl`, case ids `found-*`).
 - **Ship a compiling placeholder for every allowlisted file** (see `tests/flow_fixture/target/`). Chunks are built one at a time on top of the accepted tree, so the scaffold must compile before the other chunks exist.
 - Tag every case with its `chunk_id`. At integration the gate re-runs the cases of every accepted chunk plus the new one.
 
@@ -113,6 +114,7 @@ Event `type` values: `run.started`, `tool.read_source` (the planner read a chunk
 `plan.rejected`, `planner.question` (a risk sent to the steward before workers start), `plan.fallback` (plan unusable, manifest dependencies used instead), `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
 `tool.probe_source` (the steward ran the original), `tool.check_compile` (payload has `path`, `content`, `error`), `worker.wrote` (a file was handed in; payload has `path`, `content`), `steward.consulted` (scheduler sent a counterexample),
 `steward.answered`, `decision.recorded`, `decision.rejected`, `run.resumed`, `chunk.resumed` (reused from a still-valid receipt), `evaluation.locked`, `chunk.revalidated` (accepted code re-checked after a contract change),
+`tester.started`, `tool.try_inputs` (the tester ran inputs through both versions; payload `rows` has input, original, new, differs), `tester.finished` (payload `found`),
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
 `chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
 

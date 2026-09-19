@@ -8,15 +8,11 @@ import difflib
 import json
 import os
 import shlex
-import subprocess
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from rich.align import Align
-from rich.console import Console, Group
-from rich.panel import Panel
+from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
@@ -26,32 +22,14 @@ ROOT, RUNS = cli.ROOT, cli.RUNS
 STATE = RUNS / ".console.json"
 console = Console()
 
-LOGO = r"""
-██████╗   █████╗  ██████╗  ██╗ ████████╗ ██╗   ██╗
-██╔══██╗ ██╔══██╗ ██╔══██╗ ██║ ╚══██╔══╝ ╚██╗ ██╔╝
-██████╔╝ ███████║ ██████╔╝ ██║    ██║     ╚████╔╝
-██╔═══╝  ██╔══██║ ██╔══██╗ ██║    ██║      ╚██╔╝
-██║      ██║  ██║ ██║  ██║ ██║    ██║       ██║
-╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝    ╚═╝       ╚═╝
-""".strip("\n")
-SHADES = ["#00ff9c", "#00f0b0", "#00e0c4", "#00cfd8", "#00bdec", "#00aaff"]
-
 COMMANDS = [
-    ("/use <folder>", "choose the code to migrate (a project folder)"),
-    ("/scan", "show what would be migrated, before spending anything"),
-    ("/run", "migrate with the agent team, live"),
-    ("/solo", "same job with ONE agent, for comparison"),
-    ("/check <folder> [name]", "check a translation written by anyone (another model, a person)"),
-    ("/cheat", "demo: a fake that hardcodes the visible test answers"),
-    ("/replay [run] [speed]", "play a finished run back"),
-    ("/status [run]", "result table of a run"),
+    ("/run", "migrate the project with the agent team"),
+    ("/check <folder> [name]", "check a translation someone else wrote"),
     ("/runs", "recent runs"),
-    ("/compare [runs…]", "side-by-side numbers (defaults to the last 6 runs)"),
-    ("/evaluate [run]", "run the hidden test set once"),
+    ("/status [run]", "result of a run"),
     ("/export [run]", "write the patch, report and receipts"),
-    ("/models [workers|expert <id>]", "show or change the models for this session"),
-    ("/doctor", "check tools, key and budget"),
-    ("/clear", "clear the screen"),
+    ("/use <folder>", "choose the project to migrate"),
+    ("/models [workers|expert <id>]", "show or change the models"),
     ("/quit", "leave"),
 ]
 
@@ -73,7 +51,7 @@ def _project_line(folder: Path) -> str:
     try:
         profile, chunks = cli._load_profile(folder)
         lang = profile.get("languages", {})
-        return f"{lang.get('source', '?')} → {lang.get('target', '?')}, {len(chunks)} pieces  ({os.path.relpath(folder, ROOT)})"
+        return f"{lang.get('source', '?')} → {lang.get('target', '?')}  ·  {len(chunks)} pieces  ·  {os.path.relpath(folder, ROOT).replace(os.sep, '/')}"
     except Exception:  # noqa: BLE001
         return f"(no project at {folder}; choose one with /use <folder>)"
 
@@ -103,32 +81,24 @@ def _run_rows(limit: int = 10) -> list[dict]:
 
 # ── drawing ─────────────────────────────────────────────────────────────────
 def banner(state: dict) -> None:
-    logo = Text()
-    for line, shade in zip(LOGO.splitlines(), SHADES):
-        logo.append(line + "\n", style=f"bold {shade}")
-    tag = Text.assemble(("old code ", "dim"), ("══ same inputs, same outputs ══", "bold #00e0c4"), (" new code", "dim"))
-    sub = Text("AI rewrites your code in a new language. Parity proves it still works the same.", style="italic")
-    info = Table.grid(padding=(0, 2))
-    info.add_column(style="dim", justify="right")
-    info.add_column()
-    info.add_row("project", _project_line(Path(state["project"])))
-    info.add_row("workers", os.environ.get("MODEL_NAME", "not set"))
-    info.add_row("expert", os.environ.get("REVIEWER_MODEL", "not set") + "   [dim](a different model family on purpose)[/dim]")
-    info.add_row("budget", _budget())
-    info.add_row("last run", state.get("last_run") or "none yet")
-    console.print(Panel(Group(Align.center(logo), Align.center(tag), Align.center(sub), Text(""), Align.center(info)),
-                        border_style="#00cfd8", padding=(1, 2)))
-    console.print("  [bold]/run[/bold] migrate   [bold]/solo[/bold] one agent   [bold]/cheat[/bold] try to fool it   "
-                  "[bold]/replay[/bold] play back   [bold]/help[/bold] everything else\n", style="dim")
+    short = lambda m: (m or "not set").split("/")[-1]  # noqa: E731
+    console.print()
+    console.print(Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), ("   proves rewritten code still works the same", "dim")))
+    console.print()
+    console.print(f"  {_project_line(Path(state['project']))}", style="dim", highlight=False)
+    console.print(f"  {short(os.environ.get('MODEL_NAME'))} + {short(os.environ.get('REVIEWER_MODEL'))}  ·  {_budget()}", style="dim", highlight=False)
+    console.print()
+    console.print("  /run   /check   /runs   /help", style="dim", highlight=False)
+    console.print()
 
 
 def show_help() -> None:
-    t = Table(box=None, padding=(0, 2), show_header=False)
+    t = Table(box=None, padding=(0, 2), show_header=False, pad_edge=True)
     t.add_column(no_wrap=True)
     t.add_column()
     for name, what in COMMANDS:
         t.add_row(Text(name, style="bold #00e0c4"), what)
-    console.print(Panel(t, title="commands", title_align="left", border_style="grey37"))
+    console.print(t)
 
 
 def show_runs() -> None:
@@ -187,14 +157,13 @@ def handle(line: str, state: dict) -> bool:
             console.print("[red]that folder has no profile.json[/red]  example: /use tests/flow_fixture")
     elif cmd == "scan":
         _call(["scan", project])
-    elif cmd in ("run", "solo"):
-        solo = cmd == "solo" or "--solo" in args
-        state["last_run"] = _new_id("solo" if solo else "team")
+    elif cmd == "run":
+        state["last_run"] = _new_id("team")
         _save(state)
-        _call(["run", project, "--run-id", state["last_run"]] + (["--solo"] if solo else []))
-    elif cmd in ("check", "cheat"):
-        folder = "tests/cheat_candidate" if cmd == "cheat" else (args[0] if args else "")
-        author = "cheater" if cmd == "cheat" else (args[1] if len(args) > 1 else "outside")
+        _call(["run", project, "--run-id", state["last_run"]])
+    elif cmd == "check":
+        folder = args[0] if args else ""
+        author = args[1] if len(args) > 1 else "outside"
         if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
             console.print("[red]which folder holds the translation?[/red]  example: /check tests/fable_oneshot_candidate fable-one-shot")
         else:
@@ -202,9 +171,6 @@ def handle(line: str, state: dict) -> bool:
             _save(state)
             _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]])
             _call(["status", state["last_run"]])
-    elif cmd in ("replay", "watch"):
-        if last():
-            _call(["watch", last()] + (["--replay", "--speed", args[1] if len(args) > 1 else "2"] if cmd == "replay" else []))
     elif cmd in ("status", "evaluate", "export"):
         if last():
             _call([cmd, last()])
@@ -212,9 +178,6 @@ def handle(line: str, state: dict) -> bool:
             console.print("no run yet: try /run")
     elif cmd == "runs":
         show_runs()
-    elif cmd == "compare":
-        ids = args or [r["id"] for r in _run_rows(6)][::-1]
-        subprocess.run([sys.executable, str(ROOT / "env" / "compare-runs.py"), *ids], cwd=ROOT)
     elif cmd in ("models", "model"):
         keys = {"workers": "MODEL_NAME", "worker": "MODEL_NAME", "expert": "REVIEWER_MODEL"}
         if len(args) == 2 and args[0] in keys:
@@ -238,7 +201,7 @@ def shell() -> int:
     banner(state)
     while True:
         try:
-            line = console.input("[bold #00e0c4]parity ›[/bold #00e0c4] ").strip()
+            line = console.input("[bold]›[/bold] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
             break

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import tempfile
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -45,6 +46,16 @@ STEWARD_PROMPT = (
     "function. Name a target-language construct only if you are certain of its exact spelling; you cannot compile, "
     "workers can, so otherwise describe the required behavior precisely and let them find the construct. (5) Probe several inputs in ONE probe_source call. "
     "(6) Finish every request by calling submit_ruling exactly once; that is the only way to answer."
+)
+
+TESTER_PROMPT = (
+    "You are the tester of a code-migration team. Your job is to BREAK new code: find inputs on which it gives a different "
+    "result from the original. You never write expected outputs; the original code is run to get the truth. Method: read both "
+    "versions, think about where the two languages behave differently (negative numbers with division and modulo, integer "
+    "overflow and very large values, zero, boundaries, rounding, empty or unusual strings) and about shortcuts in the new code "
+    "(special-cased values, lookup tables, hardcoded answers: try values NEAR them, not the same ones). Put many varied inputs in "
+    "ONE try_inputs call; you get 3 calls per chunk. Stop as soon as you find a difference. Do not waste tries on inputs the "
+    "original itself rejects. Finish by calling submit_report exactly once."
 )
 
 PLANNER_PROMPT = (
@@ -100,6 +111,11 @@ class RunContext:
     events: EventLog
     seen: dict = field(default_factory=dict)      # member -> contract hashes that member has actually been shown
     blocked: dict = field(default_factory=dict)
+    under_test: dict = field(default_factory=dict)   # chunk -> (candidate, overlay) the tester may attack right now
+    tester_calls: dict = field(default_factory=dict)
+    found: dict = field(default_factory=dict)        # chunk -> cases the tester found in the current hunt
+    _cases_lock: threading.Lock = field(default_factory=threading.Lock)
+    _found: int = 0
     _n: int = 0
 
     def source_text(self, cid: str) -> str:
@@ -232,6 +248,99 @@ class RunContext:
 
         return [ToolSpec("probe_source", "Run the frozen ORIGINAL implementation of one export on up to 8 inputs you choose. inputs_json is a JSON ARRAY of inputs. Returns the real status/value/error_code for each.", probe_source),
                 ToolSpec("submit_ruling", "Answer the request; the only way to answer. kind is implementation_clarification | behavior_change | no_decision. evidence_refs is a comma-separated list: the source file path plus the probes or case id you relied on.", submit_ruling)]
+
+    # ── tester ─────────────────────────────────────────────────────────────
+    def add_found_case(self, cid: str, value: dict) -> dict:
+        """A tester input on which the candidate and the original disagreed joins the run's cases for good."""
+        with self._cases_lock:
+            self._found += 1
+            case = {"schema_version": 1, "case_id": f"found-{cid}-{self._found}", "chunk_id": cid,
+                    "export": self.chunks[cid]["exports"][0], "input": value, "found_by": "tester"}
+            with self.cases_path.open("a", encoding="utf-8", newline="\n") as f:
+                f.write(json.dumps(case) + "\n")
+            return case
+
+    def outside_domain(self, cid: str, value: dict) -> str:
+        """Why an input is outside the chunk's declared input domain ('' if it is inside). Plain code, not the tester's opinion."""
+        for key, rule in (self.chunks[cid].get("input_domain") or {}).items():
+            x = value.get(key)
+            if isinstance(x, bool) or (("min" in rule or "max" in rule) and not isinstance(x, (int, float))):
+                return f"{key} must be a number"
+            if "min" in rule and x < rule["min"] or "max" in rule and x > rule["max"]:
+                return f"{key}={x} is outside [{rule.get('min', '-inf')}, {rule.get('max', 'inf')}]"
+            if "max_len" in rule and (not hasattr(x, "__len__") or len(x) > rule["max_len"]):
+                return f"{key} is longer than {rule['max_len']}"
+        return ""
+
+    def tester_query(self, cid: str, candidate: dict) -> str:
+        m = self.chunks[cid]
+        files = "".join(f"\n# {f['path']}\n{f['content']}" for f in candidate["files"])
+        return (f"New code for chunk {cid} (export {m['exports'][0]}) just matched the original on the fixed test cases. "
+                f"Find inputs where it does NOT match.\n\nOriginal:\n{self.source_text(cid)}\n\nNew code:{files}\n\n"
+                f"Input shape (one example, keep exactly these keys and types): {json.dumps(m.get('example_input', {}))}\n"
+                f"Allowed input range (inputs outside it are refused and do not count): {json.dumps(m.get('input_domain') or 'not declared')}\n"
+                f"Call try_inputs with chunk_id=\"{cid}\". Then call submit_report.")
+
+    def register_tester(self, model: str | None = None) -> None:
+        ctx = self
+
+        async def try_inputs(chunk_id: str, inputs_json: str) -> str:
+            if chunk_id not in ctx.under_test:
+                return f"nothing is under test for {chunk_id}; use one of {sorted(ctx.under_test)}"
+            if ctx.tester_calls.get(chunk_id, 0) >= 3:
+                return "You have used your 3 tries for this chunk. Call submit_report now."
+            try:
+                inputs = json.loads(inputs_json)
+            except json.JSONDecodeError as e:
+                return f"inputs_json is not valid JSON: {e}"
+            keys = set(ctx.chunks[chunk_id].get("example_input", {}))
+            inputs = [v for v in (inputs if isinstance(inputs, list) else [inputs]) if isinstance(v, dict) and (not keys or set(v) == keys)][:12]
+            refused = [f"{json.dumps(v)}: {why}" for v in inputs if (why := ctx.outside_domain(chunk_id, v))]
+            inputs = [v for v in inputs if not ctx.outside_domain(chunk_id, v)]
+            if not inputs:
+                return (f"No usable inputs. Each input must be an object with exactly these keys: {sorted(keys)}, inside the allowed range. "
+                        f"Refused: {refused[:4]}")
+            ctx.tester_calls[chunk_id] = n = ctx.tester_calls.get(chunk_id, 0) + 1
+            candidate, overlay = ctx.under_test[chunk_id]
+            export = ctx.chunks[chunk_id]["exports"][0]
+            cases = [{"schema_version": 1, "case_id": f"try-{i}", "chunk_id": chunk_id, "export": export, "input": v} for i, v in enumerate(inputs)]
+
+            def run() -> tuple[str, list]:
+                with tempfile.TemporaryDirectory(prefix="parity-try-") as d:
+                    cpath = Path(d) / "cases.jsonl"
+                    cpath.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
+                    ctx._n += 1
+                    v = gate.check(ctx.profile_dir, chunk_id, candidate, cpath, ctx.run_dir, attempt_id=f"{chunk_id}:tester-{ctx._n}", overlay=overlay)
+                    if v.status not in ("ACCEPTED", "REJECTED_BEHAVIOR"):
+                        return f"Could not compare ({v.status}: {v.detail[:300]}). Inputs the original itself rejects do not count; try others.", []
+                    obs = ctx.run_dir / "observations" / f"{chunk_id}-tester-{ctx._n}"
+                    read = lambda p: {o["case_id"]: o for o in map(json.loads, (obs / p).read_text(encoding="utf-8").splitlines())}  # noqa: E731
+                    src, tgt = read("source_obs.jsonl"), read("target_obs.jsonl")
+                    show = lambda o: o.get("value") if o.get("status") == "ok" else o.get("error_code") or o.get("status")  # noqa: E731
+                    rows = [{"input": c["input"], "original": show(src[c["case_id"]]), "new": show(tgt[c["case_id"]]),
+                             "differs": c["case_id"] in v.mismatched_case_ids} for c in cases]
+                    return "", rows
+
+            problem, rows = await asyncio.to_thread(run)
+            if problem:
+                return problem
+            differing = [r for r in rows if r["differs"]]
+            for r in differing:
+                ctx.found.setdefault(chunk_id, []).append(ctx.add_found_case(chunk_id, r["input"]))
+            ctx.events.emit("tool.try_inputs", actor="tester", chunk_id=chunk_id,
+                            payload={"export": export, "tried": len(rows), "differ": len(differing), "rows": rows[:12]})
+            if differing:
+                return f"{len(differing)} of {len(rows)} inputs DIFFER. They are now permanent test cases. Call submit_report.\n{json.dumps(differing)}"
+            return f"All {len(rows)} inputs match ({3 - n} tries left). Results: {json.dumps(rows)}"
+
+        async def submit_report(chunk_id: str, summary: str) -> str:
+            TEAM.outbox["tester"] = {"chunk_id": chunk_id, "summary": summary}
+            return "Report received. Stop now."
+
+        TEAM.register(MemberSpec("tester", "tester", TESTER_PROMPT, model=model, max_iterations=10, serial=True, tools=[
+            ToolSpec("try_inputs", "Run up to 12 inputs through BOTH the original and the new code. inputs_json is a JSON ARRAY of input objects. Returns both outputs for each and which differ. At most 3 calls per chunk.", try_inputs),
+            ToolSpec("submit_report", "Finish: say in one or two sentences what you attacked and what you found. The only way to finish.", submit_report)],
+            submit_tools={"submit_report"}))
 
     # ── planner ────────────────────────────────────────────────────────────
     def register_planner(self) -> None:

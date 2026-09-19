@@ -12,6 +12,7 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+from rich import box
 from rich.console import Console, Group
 from rich.live import Live
 from rich.panel import Panel
@@ -19,7 +20,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-ACTOR_STYLE = {"planner": "magenta", "expert": "yellow", "checker": "cyan", "worker": "blue", "solo": "blue", "run": "white"}
+ACTOR_STYLE = {"tester": "red", "planner": "magenta", "expert": "yellow", "checker": "cyan", "worker": "blue", "solo": "blue", "run": "white"}
 REASONS = {"REJECTED_BUILD": "does not compile", "REJECTED_BEHAVIOR": "wrong output", "REJECTED_POLICY": "touched a file it may not",
            "REJECTED_INTEGRITY": "test files were changed", "REJECTED_TEST": "missing or crashed cases",
            "REJECTED_INTEGRATION": "breaks pieces already kept"}
@@ -185,10 +186,26 @@ class Board:
             self._set(piece, "being written", "blue", "compiles" if ok else f"compiler: {_short(err, 110) or 'does not compile yet'}",
                       "green" if ok else "red")
             self.say(e, "worker", worker, "compiles its code: " + ("OK" if ok else "does not compile yet"))
+        elif t == "tester.started":
+            self._set(piece, "tester is trying to break it", "magenta", "passed the fixed cases; the tester is attacking it…", "magenta")
+            self.say(e, "tester", "tester", f"attacks {c}: looks for inputs where the new code and the original disagree")
+        elif t == "tool.try_inputs":
+            bad = [r for r in p.get("rows", []) if r.get("differs")]
+            call = lambda r: f"{p.get('export')}({', '.join(f'{k}={v}' for k, v in r['input'].items())})" if isinstance(r.get("input"), dict) else json.dumps(r.get("input"))  # noqa: E731
+            if bad:
+                self.say(e, "tester", "tester", f"✗ BROKE {c}: {call(bad[0])}   original = {bad[0]['original']}   new code = {bad[0]['new']}"
+                         + (f"   (+{len(bad) - 1} more)" if len(bad) > 1 else "") + "   → now a permanent test case")
+            else:
+                sample = "   ".join(call(r) for r in p.get("rows", [])[:3])
+                self.say(e, "tester", "tester", f"tries {p.get('tried')} inputs on both versions, all match: {_short(sample, 120)}")
+        elif t == "tester.finished":
+            if not p.get("found"):
+                self._set(piece, "survived the tester", "green", "✓ the tester could not break it", "green")
+                self.say(e, "tester", "tester", f"could not break {c}")
         elif t == "worker.wrote":
             self._code(piece, p.get("path", ""), p.get("content", ""))
         elif t == "candidate.submitted":
-            if ":integrate-" in (e.get("attempt_id") or ""):
+            if ":integrate-" in (e.get("attempt_id") or "") or "-after-tester" in (e.get("attempt_id") or ""):
                 return
             self._set(piece, "being checked", "cyan", "checker is comparing it with the original…", "cyan")
             self.say(e, "worker", worker, f"hands in {', '.join(p.get('files', []))}")
@@ -226,6 +243,8 @@ class Board:
         elif t == "chunk.resumed":
             self._set(piece, "KEPT ✓ (from before)", "bold green")
             self.say(e, "run", "run", f"{c} already proven in the earlier run, reused")
+        elif t == "chunk.blocked" and piece and piece["state"].startswith("REJECTED"):
+            pass                                   # keep the failing input on screen
         elif t == "chunk.blocked":
             self._set(piece, "NEEDS A HUMAN", "bold red", _short(p.get("reason") or p.get("detail"), 110), "bold red")
             self.say(e, "run", "run", f"{c} needs a human: {_short(p.get('reason') or p.get('detail'), 140)}")
@@ -261,22 +280,19 @@ class Board:
         if s["note"]:
             parts.append(Text(s["note"], style=s["note_style"]))
         return Panel(Group(*parts), title=f"[bold]{cid}[/bold] {s['what']}", title_align="left",
-                     subtitle=Text(s["state"], style=s["style"]), subtitle_align="right", border_style=border, height=height)
+                     subtitle=Text(s["state"], style=s["style"]), subtitle_align="right", border_style=border, height=height, box=box.ROUNDED)
 
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
-        head = Text.assemble(("  PARITY  ", "bold black on green"), f"  {self.title}   ",
-                             ("ONE AGENT" if self.mode == "single-agent" else self.mode.upper() if self.mode.startswith("outside") else "AGENT TEAM", "bold"),
-                             f"   run {self.run_id}   {int(max(self.now - self.t0, 0))}s   ",
+        who = self.mode[9:] if self.mode.startswith("outside: ") else "one agent" if self.mode == "single-agent" else "agent team"
+        head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  {int(max(self.now - self.t0, 0))}s  ·  ", "dim"),
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),
-                             (f"   shared rules: {len(self.rules)}", "yellow" if self.rules else "dim"),
-                             (f"   hidden test set: {self.hidden}" if self.hidden else ""))
+                             (f"  ·  hidden test set {self.hidden}" if self.hidden else "", "bold red" if "FAIL" in self.hidden else "green"))
         rule = self.rules[-1] if self.rules else None
-        rules = Panel(Text(_short(rule["ruling"], width * 2 - 12), style="yellow"),
-                      title=f"latest rule from the expert: {rule['decision_id']}, applies to {', '.join(rule['affected_chunks'])}",
-                      title_align="left", border_style="yellow") if rule else None
-        caught = Panel(Text("\n".join(self.caught[-3:]), style="bold red"), title=f"wrong answers caught by the checker: {len(self.caught)}",
-                       title_align="left", border_style="red") if self.caught else None
+        rules = Text.assemble(("  rule ", "bold yellow"), (f"{rule['decision_id']}  ", "yellow"),
+                              (_short(rule["ruling"], max(width - 16, 40)), "dim")) if rule else None
+        caught = Text.assemble(("  caught ", "bold red"), (f"{len(self.caught)}  ", "red"),
+                               (_short(self.caught[-1], max(width - 16, 40)), "red")) if self.caught else None
 
         # code panels: as many pieces as fit side by side, the most recently active first
         per_row = max(1, min(len(self.pieces), width // 46, 3))
@@ -284,7 +300,7 @@ class Board:
         if len(order) > per_row:
             order = sorted(order, key=lambda c: -self.pieces[c]["touched"])[:per_row]
             order.sort(key=list(self.pieces).index)
-        fixed = 2 + (4 if rules else 0) + (len(self.caught[-3:]) + 2 if caught else 0)
+        fixed = 2 + (1 if rules else 0) + (1 if caught else 0)
         free = max(height - fixed - 1, 12)
         cap = max(min(int(free * 0.6), 34), 10)
         src_lines = max(min(max((len(self.pieces[c]["src"].splitlines()) for c in order), default=3), (cap - 6) // 2), 2)
@@ -302,7 +318,7 @@ class Board:
         room = max(free - code_h - 2 - (1 if others else 0), 3)
         lines: list[Text] = []
         for secs, kind, who, text in reversed(self.feed):
-            line = Text.assemble((f"{int(secs):>4}s ", "dim"), (f"{who:<10} ", f"bold {ACTOR_STYLE.get(kind, 'white')}"), text)
+            line = Text.assemble((f"  {int(secs):>3}s ", "dim"), (f"{who:<10} ", f"bold {ACTOR_STYLE.get(kind, 'white')}"), text)
             if "✗" in text:
                 line.stylize("red", 16)
             elif "✓" in text:
@@ -312,7 +328,7 @@ class Board:
                 break
             room -= need
             lines.append(line)
-        feed = Panel(Group(*reversed(lines)), title="what the agents are doing", title_align="left", border_style="grey37")
+        feed = Group(Text(""), *reversed(lines))
         return Group(*[x for x in (head, Text(""), grid, others, rules, caught, feed) if x is not None])
 
 

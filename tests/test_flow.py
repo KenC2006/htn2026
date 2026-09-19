@@ -97,6 +97,21 @@ class FlowTest(unittest.TestCase):
         profile = json.loads((self.profile / "profile.json").read_text())
         return RunContext(self.profile, self.run_dir, self.profile / "cases.jsonl", profile, self.chunks, self.ledger, self.integ, self.events)
 
+    def test_tester_inputs_outside_the_declared_range_are_refused_and_found_inputs_become_cases(self):
+        ctx = self.ctx()
+        self.assertEqual(ctx.outside_domain("S1", {"ts": -5, "width": 1000}), "")
+        self.assertIn("width", ctx.outside_domain("S1", {"ts": 5, "width": -1000}))       # negative width was never supported
+        self.assertIn("ts", ctx.outside_domain("S1", {"ts": -9223372036854775808, "width": 3}))
+        self.assertIn("number", ctx.outside_domain("S1", {"ts": "5", "width": 3}))
+        ctx.cases_path = self.run_dir / "cases.jsonl"                                     # the run's own copy, never the frozen file
+        ctx.cases_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.cases_path.write_bytes((self.profile / "cases.jsonl").read_bytes())
+        case = ctx.add_found_case("S1", {"ts": -1001, "width": 1000})
+        lines = [json.loads(l) for l in ctx.cases_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(lines[-1], case)
+        self.assertEqual((case["chunk_id"], case["export"], case["found_by"]), ("S1", "bucket", "tester"))
+        self.assertNotIn("found-", (self.profile / "cases.jsonl").read_text(encoding="utf-8"))
+
     @staticmethod
     def tool(specs, name):
         return next(t.func for t in specs if t.name == name)
