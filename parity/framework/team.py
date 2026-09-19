@@ -66,6 +66,9 @@ class MemberSpec:
     is_done: Callable[[], bool] | None = None          # ... once this says everything was handed in
 
 
+NETWORK_ERRORS = ("APIConnectionError", "Connection error", "APITimeoutError", "timed out", "RateLimitError", "429", "502", "503", "504")
+
+
 class Team:
     def __init__(self) -> None:
         self.specs: dict[str, MemberSpec] = {}
@@ -123,7 +126,8 @@ class Team:
         """
         async with self._locks.setdefault(member, asyncio.Lock()):
             spent = 0
-            for fresh_start in (False, True):
+            fresh_start, waits = False, [5, 15, 30, 60, 60]
+            while True:
                 agent = await self._agent(member)
                 self.outbox.pop(member, None)
                 before = self.tokens(member)
@@ -136,15 +140,20 @@ class Team:
                     # later call (observed: HTTP 400 for the rest of the run). Recover by giving the member a
                     # fresh conversation once. It loses its memory, not its job.
                     spent += self.tokens(member) - before
+                    # The network or the provider being down is not the member's fault: wait and ask again,
+                    # same conversation. Without this a dropped connection burned every piece's attempts in seconds.
+                    if any(w in str(e) for w in NETWORK_ERRORS) and waits:
+                        await asyncio.sleep(waits.pop(0))
+                        continue
                     if fresh_start:
                         raise
+                    fresh_start = True
                     self.restarts.append({"member": member, "error": str(e)[:300]})
                     self._agents.pop(member, None)
                     self._generation[member] = self._generation.get(member, 0) + 1
                     continue
                 text = out.get("output", "") if isinstance(out, dict) else str(out)
                 return text or "", spent + self.tokens(member) - before, self.outbox.pop(member, None)
-        raise RuntimeError("unreachable")
 
 
 TEAM = Team()
