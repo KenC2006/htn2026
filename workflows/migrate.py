@@ -120,7 +120,16 @@ async def run(args):
 
     # ── Plan: an agent proposes the dependency order and the semantic risks; plain code checks the plan; the
     # steward settles the risks BEFORE any worker starts, so workers begin with guidance instead of going stale later.
-    if args.get("plan", True) and not resuming:
+    # Starting from a translation someone already wrote: it is checked first, and agents are only called for what fails.
+    start_from = Path(args["start_from"]).resolve() if args.get("start_from") else None
+
+    def given(cid: str) -> dict | None:
+        paths = chunks[cid]["write_allowlist"]
+        if start_from is None or not all((start_from / p).exists() for p in paths):
+            return None
+        return {"files": [{"path": p, "content": (start_from / p).read_text(encoding="utf-8")} for p in paths]}
+
+    if args.get("plan", True) and not resuming and start_from is None:
         phase("Plan")
         ctx.register_planner()
         lang = profile.get("languages", {})
@@ -189,9 +198,12 @@ async def run(args):
         stale_retry = prior is not None
         prompt = stale_prompt(prior["files"], stale_reason) if stale_retry else task_prompt(cid)
         stale_rounds = 0
+        handed = given(cid) if prior is None else None
         while True:
             # A stale re-dispatch is not the worker's fault, so it does not use up an attempt (but is capped).
-            if stale_retry:
+            if handed is not None:
+                label = f"given-{cid}"
+            elif stale_retry:
                 stale_rounds += 1
                 if stale_rounds > MAX_STALE_ROUNDS:
                     break
@@ -204,8 +216,13 @@ async def run(args):
                 label = f"worker-{cid}-attempt{attempts[cid]}"
             member = f"worker-{cid}"
             ctx.mark_seen(member, cid)
-            events.emit("worker.started", actor="scheduler", chunk_id=cid, payload={"label": label, "member": member})
-            candidate = await agent(prompt, schema=CANDIDATE_SCHEMA, label=label, options={"member": member})
+            if handed is not None:                       # the translation we were given: no agent is called for it
+                candidate, handed = handed, None
+                for f in candidate["files"]:
+                    events.emit("worker.wrote", actor="given", chunk_id=cid, payload=f)
+            else:
+                events.emit("worker.started", actor="scheduler", chunk_id=cid, payload={"label": label, "member": member})
+                candidate = await agent(prompt, schema=CANDIDATE_SCHEMA, label=label, options={"member": member})
             used = ctx.seen[member]  # includes guidance the worker received from the steward mid-turn
             if candidate is None:
                 log(f"{cid}: worker returned nothing usable")

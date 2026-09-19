@@ -188,7 +188,10 @@ def run(ns: argparse.Namespace) -> int:
     script = ROOT / "workflows" / "migrate.py"
     if (RUNS / run_id / "events.jsonl").exists() and not ns.resume:
         sys.exit(f"run {run_id} already exists. Continue it with --resume, or choose another --run-id.")
-    args = json.dumps({"profile_dir": str(project_dir(ns.profile_dir)), "run_id": run_id, "resume": bool(ns.resume)})
+    args = {"profile_dir": str(project_dir(ns.profile_dir)), "run_id": run_id, "resume": bool(ns.resume)}
+    if ns.start_from:
+        args["start_from"] = str(Path(ns.start_from).resolve())
+    args = json.dumps(args)
     RUNS.mkdir(parents=True, exist_ok=True)
     with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
         proc = subprocess.Popen([sys.executable, "-m", "parity.framework.run", str(script), "--args", args,
@@ -476,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
+    p.add_argument("--start-from", help="folder with a translation someone already wrote: it is checked first, agents only fix what fails")
     p.set_defaults(fn=run)
     p = sub.add_parser("check", help="check a translation written by anyone with the same checker and hidden test set")
     p.add_argument("profile_dir"); p.add_argument("candidate_dir"); p.add_argument("--author", default="outside")
