@@ -91,6 +91,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 - **Ship a compiling placeholder for every allowlisted file** (see `tests/flow_fixture/target/`). Chunks are built one at a time on top of the accepted tree, so the scaffold must compile before the other chunks exist.
 - Tag every case with its `chunk_id`. At integration the gate re-runs the cases of every accepted chunk plus the new one.
 
+- Records: `{"type": "list[tuple]", "max_items": 200, "fields": [rule, rule, ...]}` declares a list of fixed-length records, one rule per field; text rules also take `min_len`. `fixtures/telemetry-workbench/py-rust-batch/chunks/P2.json` is a full example.
 - Give pieces that do not share a convention **separate contracts**. A ruling bumps its contract's version and makes every piece on that contract stale; on the first real-library run one shared contract for six unrelated functions meant each ruling threw away the others' work.
 - `python -m parity new <python file | folder | module>` writes all of the above for Python to Rust (see README). Its `input_domain` rules are typed: `type` (`int`, `float`, `str`, `bool`, `list`), `min`, `max`, `max_len`, `choices`, `nullable`, `max_items`, `alphabet`; `parity/engine/domain.py::in_domain` enforces them for the tester and the expert alike.
 

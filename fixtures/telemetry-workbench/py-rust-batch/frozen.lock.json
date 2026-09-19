@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "files": {
+    "cases.jsonl": "430da5e315074faf201f5db7ddfad77aa91ac11d6a4b805e29cbbcdc7e076aeb",
+    "chunks/P1.json": "ea590c1309da72fe1806025b58530332055eae9311390a2b02f94a0dbe927793",
+    "chunks/P2.json": "fb0faf53fc190d92d93beafcbd2c47a0a995be6bdb602ee257ed07130d948066",
+    "chunks/P3.json": "8e0b8e3e30ce850796d45511803848da9041b7ab03362cd25340d1ba976ab902",
+    "contracts/bucket-semantics.json": "9d8108a2b5e27299044c652fe2613e7fd982aff382d90c61c399be8dde17a49f",
+    "contracts/dedupe-semantics.json": "909b5edcc68a0801b53eab1c47c7e66251aece5e845eaa931e785e9c54c0e4cd",
+    "contracts/record-v1.json": "30d688b465f66fabea12d7968d90f2b99829a09d44882406d847fd9e5d823135",
+    "contracts/summarize-semantics.json": "42340a8752b9c2288a0672e0db889b0f12fb15ec706067f3f73edad348907f90",
+    "gen_cases.py": "4b0938aa7c2147f5cb88285a4910f8dcc61f7f031229ea91bada2506dd1fac13",
+    "harness/json.rs": "382c8d43b4a9c1bec6c28dab505af251a3b74e0c4ddc1362b2a2492d83c0af70",
+    "harness/main.rs": "c3abbbe53e12f3b0620dce4701f0bbde5517cb04227e5e9597196526928078d0",
+    "legacy/telemetry_batch/__init__.py": "d994a3391efdd532fdeb9cc508c8481e9a5caae9a6e569473338b16e7e43a1b8",
+    "legacy/telemetry_batch/_validate.py": "c31b1aac68d02f24ced1c1377abe18d704d1a47a55d0688d3ed21ea7c10e7c1e",
+    "legacy/telemetry_batch/dedupe_latest.py": "b5daf2adf472e8ff49319ee709c326264134b7e1bac4d3e1480a103ba0c8c9e9",
+    "legacy/telemetry_batch/summarize.py": "c1612f790180e5bc1685f474a6bdb26fed845f6cfe8e3129d4d497b6731c6e2a",
+    "legacy/telemetry_batch/window_stats.py": "7872e49e3328036e771b6a93383f77288237bd2f379ca4f4209474529c7ce300",
+    "locked/cases.jsonl": "c4e04b26f4bb6106b4d39201db46464a0b577c39763ae0d7fb9c4b5e03a6bb2c",
+    "named_cases.jsonl": "04593fedf7b9d061bdbc31bda848f32a53a0fb701bfc7b62e3220602332c6e93",
+    "profile.json": "d82b045c1b22269388a6b215f0061d38675c8ea83fac186cc81d2d58babea877",
+    "runners/source.py": "143210900857cfa3f218595d5b95f8ac353fb004f62ed42e2b081a0da326989c",
+    "runners/target.py": "b49d15aa482d6a5e35d7e8c6bce873bd11be344430d26d52bd12dcf59c5c96f9"
+  },
+  "fixture_hash": "db81c3ba7eb5e5f65a36f1697cd4c6b63fda9caa87f3b6a861e9fcae9cadfd93"
+}

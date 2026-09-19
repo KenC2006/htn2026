@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "chunk_id": "P3",
+  "profile": "py-rust-batch",
+  "source_files": [
+    "legacy/telemetry_batch/summarize.py"
+  ],
+  "exports": [
+    "summarize"
+  ],
+  "write_allowlist": [
+    "target/summarize.rs"
+  ],
+  "depends_on": [
+    "P1",
+    "P2"
+  ],
+  "contract_ids": [
+    "record-v1",
+    "dedupe-semantics",
+    "bucket-semantics",
+    "summarize-semantics"
+  ],
+  "worker_notes": "The frozen harness (harness/main.rs) declares your file as a module and defines, at the crate root, `pub type Record = (String, i64, i64, i64);` (sensor_id, timestamp_ms, sequence, value_milli) and `pub type WindowRow = (String, i64, i64, i64, i64, i64);` (sensor_id, bucket_start_ms, count, sum_milli, min_milli, max_milli). Import them with `use crate::{Record, WindowRow};`. Standard library only (HashMap, BTreeMap, sort are fine), no external crates, no `unsafe`. Inputs are already validated: every record and the width are inside the declared ranges. Exact signature: `pub fn summarize(records: &[Record], width_ms: i64) -> Vec<WindowRow>`. Call the already migrated `crate::dedupe_latest` and `crate::window_stats` instead of re-implementing them.",
+  "limits": {
+    "attempts": 3,
+    "verify_seconds_per_attempt": 180
+  },
+  "example_input": {
+    "records": [
+      [
+        "s1",
+        2500,
+        0,
+        7
+      ],
+      [
+        "s1",
+        2500,
+        1,
+        9
+      ]
+    ],
+    "width_ms": 1000
+  },
+  "input_domain": {
+    "records": {
+      "type": "list[tuple]",
+      "max_items": 200,
+      "fields": [
+        {
+          "type": "str",
+          "min_len": 1,
+          "max_len": 32,
+          "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+        },
+        {
+          "type": "int",
+          "min": -1000000000000,
+          "max": 1000000000000
+        },
+        {
+          "type": "int",
+          "min": 0,
+          "max": 2147483647
+        },
+        {
+          "type": "int",
+          "min": -1000000000,
+          "max": 1000000000
+        }
+      ]
+    },
+    "width_ms": {
+      "type": "int",
+      "min": 1,
+      "max": 86400000
+    }
+  }
+}

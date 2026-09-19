@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "contract_id": "bucket-semantics",
+  "version": 1,
+  "behavior": "bucket_start_ms = floor(timestamp_ms / width_ms) * width_ms using mathematical floor division (Python //); timestamp_ms=-1, width_ms=1000 gives -1000 Ordering: Output ascending by sensor_id then bucket_start_ms. Every input record is aggregated, including duplicate keys; count, sum, min and max are exact integers.",
+  "inputs": {
+    "records": "list[tuple[str, int, int, int]]",
+    "width_ms": "int in [1, 86400000]"
+  },
+  "outputs": {
+    "rows": "list[tuple[str, int, int, int, int, int]] as (sensor_id, bucket_start_ms, count, sum_milli, min_milli, max_milli)"
+  },
+  "mutation": "Input untouched; output freshly allocated.",
+  "evidence_refs": [
+    "legacy/telemetry_batch/window_stats.py",
+    "named_cases.jsonl#P2-neg-boundary-01",
+    "named_cases.jsonl#P2-exact-multiple-negative"
+  ],
+  "guidance": []
+}

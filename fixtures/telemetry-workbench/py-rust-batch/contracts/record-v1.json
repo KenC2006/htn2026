@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "contract_id": "record-v1",
+  "version": 1,
+  "behavior": "Record is tuple[str, int, int, int] in the order (sensor_id, timestamp_ms, sequence, value_milli). A batch is a list of at most 10000 records. sensor_id matches ^[A-Za-z0-9_-]{1,32}$. timestamp_ms lies in [-10**12, 10**12]; sequence in [0, 2**31-1]; value_milli in [-10**9, 10**9]; width_ms in [1, 86400000]. Integer fields require type(x) is int, so bool is rejected. The batch container must be exactly list and each record exactly tuple. These bounds keep every sum inside signed 64-bit range. Ordering: Validation runs container, then count, then width for P2 and P3, then records in input order and fields in tuple order. The first failure wins. TypeError carries a type code and ValueError a range code; args are exactly (code, index) with index -1 for container and width failures. Interpreter wording is never compared.",
+  "inputs": {
+    "records": "list[tuple[str, int, int, int]]",
+    "width_ms": "int (P2 and P3 only)"
+  },
+  "outputs": {
+    "records": "list[tuple[str, int, int, int]]",
+    "rows": "list[tuple[str, int, int, int, int, int]]"
+  },
+  "mutation": "No function mutates its input list or any record tuple. Every result is a freshly allocated list.",
+  "evidence_refs": [
+    "legacy/telemetry_batch/_validate.py",
+    "legacy/tests/test_public_api.py"
+  ],
+  "guidance": []
+}

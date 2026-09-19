@@ -32,7 +32,7 @@ Then `python -m parity run projects/<name>`. `projects/` is git-ignored because 
 2. `python -m venv .venv-swarm`, then `.venv-swarm\Scripts\pip install workswarm==0.2.6`
 3. `cp env/secrets.env.example env/secrets.env` and fill in the OpenRouter key (get it from Ken by DM; never commit it).
 4. `python -m parity doctor` checks all of the above and the remaining budget.
-5. `python -m unittest tests.test_gate tests.test_flow tests.test_new` (no model calls, about a minute).
+5. `python -m unittest tests.test_gate tests.test_flow tests.test_new tests.test_telemetry` (no model calls, about a minute).
 
 Everything stays inside this folder: WorkSwarm's state goes to `.jiuwenswarm/`, runs to `runs/`.
 
@@ -57,6 +57,7 @@ After the run, a hidden test set that no agent ever saw is run once. Details: `A
 | `parity/shell.py`, `view.py`, `cli.py` | console, live view, commands |
 | `workflows/migrate.py` | the team's workflow, run by SwarmFlow |
 | `tests/flow_fixture/` | the working example project: copy it to add a language pair |
+| `fixtures/telemetry-workbench/py-rust-batch/` | the demo project (Aidan's fixture): three batch functions over sensor records, 24 named cases + 96 generated, 300 hidden. His reference Rust is in `tests/telemetry_known_good/` |
 | `CONTRACTS.md` | the folder format teammates build against |
 | `PITCH.md` | what to say |
 | `env/show-run.py`, `env/compare-runs.py` | print a run's event trace; compare runs side by side |

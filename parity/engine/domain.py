@@ -9,6 +9,14 @@ def in_domain(rule: dict, x) -> str:
     if x is None:
         return "" if rule.get("nullable") else "null is not allowed"
     kind = rule.get("type")
+    if kind == "tuple":  # fixed-length record: one rule per field, in order
+        if not isinstance(x, (list, tuple)) or len(x) != len(rule["fields"]):
+            return f"must be a record of {len(rule['fields'])} fields"
+        return next((w for w in map(in_domain, rule["fields"], x) if w), "")
+    if kind == "list[tuple]":
+        if not isinstance(x, list) or len(x) > rule.get("max_items", 8):
+            return f"must be a list of at most {rule.get('max_items', 8)} records"
+        return next((w for w in (in_domain({"type": "tuple", "fields": rule["fields"]}, v) for v in x) if w), "")
     if kind and kind.startswith("list["):
         if not isinstance(x, list) or len(x) > rule.get("max_items", 8):
             return f"must be a list of at most {rule.get('max_items', 8)} items"
@@ -22,6 +30,8 @@ def in_domain(rule: dict, x) -> str:
             return f"must be one of {rule['choices']}"
         if len(x) > rule.get("max_len", 10**9):
             return f"is longer than {rule['max_len']}"
+        if len(x) < rule.get("min_len", 0):
+            return f"is shorter than {rule['min_len']}"
         if any(ch not in (rule.get("alphabet") or ALPHABET) for ch in x) and x not in (rule.get("choices") or []):
             return "uses characters outside the allowed alphabet"
         return ""

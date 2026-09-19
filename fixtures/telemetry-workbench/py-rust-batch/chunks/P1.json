@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "chunk_id": "P1",
+  "profile": "py-rust-batch",
+  "source_files": [
+    "legacy/telemetry_batch/dedupe_latest.py"
+  ],
+  "exports": [
+    "dedupe_latest"
+  ],
+  "write_allowlist": [
+    "target/dedupe_latest.rs"
+  ],
+  "depends_on": [],
+  "contract_ids": [
+    "record-v1",
+    "dedupe-semantics"
+  ],
+  "worker_notes": "The frozen harness (harness/main.rs) declares your file as a module and defines, at the crate root, `pub type Record = (String, i64, i64, i64);` (sensor_id, timestamp_ms, sequence, value_milli) and `pub type WindowRow = (String, i64, i64, i64, i64, i64);` (sensor_id, bucket_start_ms, count, sum_milli, min_milli, max_milli). Import them with `use crate::{Record, WindowRow};`. Standard library only (HashMap, BTreeMap, sort are fine), no external crates, no `unsafe`. Inputs are already validated: every record and the width are inside the declared ranges. Exact signature: `pub fn dedupe_latest(records: &[Record]) -> Vec<Record>`. ",
+  "limits": {
+    "attempts": 3,
+    "verify_seconds_per_attempt": 180
+  },
+  "example_input": {
+    "records": [
+      [
+        "s1",
+        10,
+        1,
+        7
+      ],
+      [
+        "s1",
+        10,
+        5,
+        9
+      ],
+      [
+        "s2",
+        -3,
+        0,
+        -4
+      ]
+    ]
+  },
+  "input_domain": {
+    "records": {
+      "type": "list[tuple]",
+      "max_items": 200,
+      "fields": [
+        {
+          "type": "str",
+          "min_len": 1,
+          "max_len": 32,
+          "alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
+        },
+        {
+          "type": "int",
+          "min": -1000000000000,
+          "max": 1000000000000
+        },
+        {
+          "type": "int",
+          "min": 0,
+          "max": 2147483647
+        },
+        {
+          "type": "int",
+          "min": -1000000000,
+          "max": 1000000000
+        }
+      ]
+    }
+  }
+}

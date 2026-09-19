@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "contract_id": "dedupe-semantics",
+  "version": 1,
+  "behavior": "dedupe_latest keeps one record per (sensor_id, timestamp_ms) key: the greatest sequence wins, and an equal sequence is resolved by the later input occurrence. The result is a fresh list sorted by (sensor_id, timestamp_ms); strings compare by ASCII code point, which equals Rust String byte order inside the declared identifier domain. Empty input returns an empty list. Permutation invariance holds only when each duplicate key has a unique greatest sequence; equal-sequence ties depend on input order by design. Ordering: Output ascending by sensor_id then timestamp_ms. Tie resolution among equal sequences is last-occurrence in input order.",
+  "inputs": {
+    "records": "list[tuple[str, int, int, int]]"
+  },
+  "outputs": {
+    "records": "list[tuple[str, int, int, int]] sorted by (sensor_id, timestamp_ms)"
+  },
+  "mutation": "Input untouched; output freshly allocated.",
+  "evidence_refs": [
+    "legacy/telemetry_batch/dedupe_latest.py",
+    "named_cases.jsonl#P1-dup-equal-seq-last-wins",
+    "named_cases.jsonl#P1-dup-equal-seq-last-wins-permuted"
+  ],
+  "guidance": []
+}

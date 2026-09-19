@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "contract_id": "summarize-semantics",
+  "version": 1,
+  "behavior": "summarize(records, width_ms) equals window_stats(dedupe_latest(records), width_ms). The migrated target must call the migrated dedupe_latest and window_stats, not a re-derived copy of either, so that an accepted P1 or P2 ruling reaches P3 automatically. The frozen Python API and error behaviour are preserved exactly. Ordering: Inherits dedupe-semantics then bucket-semantics. Equal-sequence ties therefore change the summarized values with input order.",
+  "inputs": {
+    "records": "list[tuple[str, int, int, int]]",
+    "width_ms": "int in [1, 86400000]"
+  },
+  "outputs": {
+    "rows": "list[tuple[str, int, int, int, int, int]] identical to window_stats over the deduplicated batch"
+  },
+  "mutation": "Input untouched; output freshly allocated.",
+  "evidence_refs": [
+    "legacy/telemetry_batch/summarize.py",
+    "named_cases.jsonl#P3-dedupe-then-window",
+    "named_cases.jsonl#P3-tie-order-dependence"
+  ],
+  "guidance": []
+}
