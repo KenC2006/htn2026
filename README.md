@@ -85,11 +85,12 @@ After the run, a hidden test set that no agent ever saw is run once. Details: `A
 
 | Role | Model | $/M in | $/M out |
 |---|---|---|---|
-| planner, workers | `anthropic/claude-sonnet-5` | 2 | 10 |
-| expert, tester | `anthropic/claude-opus-5` | 5 | 25 |
-| cheap, for plumbing work | `qwen/qwen3-coder-next` 0.12 / 0.80, `moonshotai/kimi-k2.7-code` 0.71 / 3.21 | | |
-| strongest | `anthropic/claude-fable-5.1` 10 / 50 | | |
+| planner, workers (day to day) | `qwen/qwen3-coder-next` | 0.12 | 0.80 |
+| expert, tester (day to day) | `moonshotai/kimi-k2.7-code` | 0.71 | 3.21 |
+| planner, workers (demo) | `anthropic/claude-sonnet-5` | 2 | 10 |
+| expert, tester (demo) | `anthropic/claude-opus-5` | 5 | 25 |
+| strongest | `anthropic/claude-fable-5.1` | 10 | 50 |
 
 Cheap models were enough for the toy examples and failed on real libraries (invalid Rust, 1 of 6 on `humanize`); a Fable one-shot of the same six functions passed 600 of 600 hidden tests.
 
-One run of the example costs about 3 cents. Change models for a session with `/models`.
+On the cheap models one run of the example costs about 3 cents. On the demo models a real-library function costs roughly 50 cents to a dollar: two `urllib.parse` runs cost about $13. Change models for a session with `/models`; the defaults are in `env/secrets.env`.
