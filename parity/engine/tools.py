@@ -274,6 +274,7 @@ class RunContext:
                 f"Find inputs where it does NOT match.\n\nOriginal:\n{self.source_text(cid)}\n\nNew code:{files}\n\n"
                 f"Input shape (one example, keep exactly these keys and types): {json.dumps(m.get('example_input', {}))}\n"
                 f"Allowed input range (inputs outside it are refused and do not count): {json.dumps(m.get('input_domain') or 'not declared')}\n"
+                "Keep every input small (a list needs at most a dozen items): small inputs expose the same differences and big ones only cost tokens.\n"
                 f"Call try_inputs with chunk_id=\"{cid}\". Then call submit_report.")
 
     def register_tester(self, model: str | None = None) -> None:
@@ -323,16 +324,19 @@ class RunContext:
             for r in differing:
                 ctx.found.setdefault(chunk_id, []).append(ctx.add_found_case(chunk_id, r["input"]))
             ctx.events.emit("tool.try_inputs", actor="tester", chunk_id=chunk_id,
-                            payload={"export": export, "tried": len(rows), "differ": len(differing), "rows": rows[:12]})
+                            payload={"export": export, "tried": len(rows), "differ": len(differing),
+                                     "rows": [r for r in rows[:12] if len(json.dumps(r)) < 2000]})
+            # The tester wrote the inputs itself; echoing big batches back cost 278k tokens on the first records run.
             if differing:
-                return f"{len(differing)} of {len(rows)} inputs DIFFER. They are now permanent test cases. Call submit_report.\n{json.dumps(differing)}"
-            return f"All {len(rows)} inputs match ({3 - n} tries left). Results: {json.dumps(rows)}"
+                return (f"{len(differing)} of {len(rows)} inputs DIFFER. They are now permanent test cases. Call submit_report.\n"
+                        + json.dumps(differing)[:3000])
+            return f"All {len(rows)} inputs match ({3 - n} tries left)."
 
         async def submit_report(chunk_id: str, summary: str) -> str:
             TEAM.outbox["tester"] = {"chunk_id": chunk_id, "summary": summary}
             return "Report received. Stop now."
 
-        TEAM.register(MemberSpec("tester", "tester", TESTER_PROMPT, model=model, max_iterations=10, serial=True, tools=[
+        TEAM.register(MemberSpec("tester", "tester", TESTER_PROMPT, model=model, max_iterations=10, serial=True, fresh_each_turn=True, tools=[
             ToolSpec("try_inputs", "Run up to 12 inputs through BOTH the original and the new code. inputs_json is a JSON ARRAY of input objects. Returns both outputs for each and which differ. At most 3 calls per chunk.", try_inputs),
             ToolSpec("submit_report", "Finish: say in one or two sentences what you attacked and what you found. The only way to finish.", submit_report)],
             submit_tools={"submit_report"}))
@@ -398,7 +402,7 @@ class RunContext:
 
     def register_team(self, steward_model: str | None) -> None:
         TEAM.register(MemberSpec("steward", "steward", STEWARD_PROMPT, model=steward_model, tools=self.steward_tools(),
-                                 max_iterations=10, serial=True, submit_tools={"submit_ruling"}))
+                                 max_iterations=10, serial=True, fresh_each_turn=True, submit_tools={"submit_ruling"}))
         for cid in self.chunks:
             member = f"worker-{cid}"
             TEAM.register(MemberSpec(member, "worker", WORKER_PROMPT, tools=self.worker_tools(member, cid), max_iterations=10,

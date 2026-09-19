@@ -248,7 +248,7 @@ def check(ns: argparse.Namespace) -> int:
             missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
             paths = chunks[cid]["write_allowlist"]
             if missing or not all((cand_dir / p).exists() for p in paths):
-                blocked[cid] = f"needs {', '.join(missing)}, which was not kept" if missing else "no file handed in"
+                blocked[cid] = "a function it calls was not kept" if missing else "no file handed in"
                 events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
                 continue
             cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
@@ -300,46 +300,57 @@ def watch(ns: argparse.Namespace) -> int:
 # ───────────────────────── status ─────────────────────────
 
 def status(ns: argparse.Namespace) -> int:
+    """One line per function: kept, still going, or needs a human, and why in plain words."""
     ev = _events(ns.run_id)
     start = ev[0]["payload"]
-    state: dict[str, dict] = {c: {"state": "waiting", "attempts": 0, "rejects": 0, "stale": 0, "asked": 0} for c in start.get("chunks", [])}
+    why = {"REJECTED_BUILD": "does not compile", "REJECTED_BEHAVIOR": "gives different answers than the original",
+           "REJECTED_POLICY": "changed a file it may not touch", "REJECTED_INTEGRITY": "test files were changed",
+           "REJECTED_TEST": "crashed on some tests", "REJECTED_INTEGRATION": "breaks functions already kept"}
+    names = {}
+    for c in start.get("chunks", []):
+        try:
+            names[c] = ", ".join(json.loads((Path(start["profile_dir"]) / "chunks" / f"{c}.json").read_text(encoding="utf-8"))["exports"])
+        except Exception:  # noqa: BLE001
+            names[c] = c
+    state = {c: {"mark": " ", "state": "waiting", "tries": 0, "last": "", "found": 0} for c in names}
     for e in ev:
         c, t = e.get("chunk_id"), e["type"]
         if c not in state:
             continue
-        s = state[c]
+        s_ = state[c]
         if t == "worker.started":
-            s["state"], s["attempts"] = "working", s["attempts"] + 1
-        elif t == "worker.question":
-            s["asked"] += 1
+            s_["mark"], s_["state"], s_["tries"] = "…", "being written", s_["tries"] + 1
         elif t == "candidate.rejected" and "compile" not in (e.get("attempt_id") or ""):
-            s["rejects"] += 1
-            s["state"] = f"rejected ({e['payload'].get('reason')})"
-        elif t == "candidate.stale":
-            s["stale"] += 1
-            s["state"] = "stale, re-dispatching"
-        elif t == "candidate.verified":
-            s["state"] = "verified, awaiting integration"
+            s_["last"] = why.get(e["payload"].get("reason"), "was rejected")
+        elif t == "tester.finished":
+            s_["found"] += e["payload"].get("found", 0)
         elif t == "chunk.accepted":
-            s["state"] = "ACCEPTED"
+            s_["mark"], s_["state"] = "✓", "kept"
         elif t == "chunk.blocked":
-            s["state"] = f"BLOCKED: {e['payload'].get('reason')}"
-    done = sum(1 for s in state.values() if s["state"] == "ACCEPTED")
-    fin = next((e for e in reversed(ev) if e["type"] == "run.finished"), None)
-    print(f"Run {ns.run_id}  [{start.get('mode', 'team')}]  accepted {done}/{len(state)}  "
-          f"{'finished' if fin else 'IN PROGRESS'}{'' if not fin or fin['payload'].get('exportable') else '  NOT EXPORTABLE'}")
-    print(f"  {'chunk':<7}{'state':<36}{'turns':<7}{'asked':<7}{'gate rejects':<14}stale")
-    for c, s in state.items():
-        print(f"  {c:<7}{s['state'][:34]:<36}{s['attempts']:<7}{s['asked']:<7}{s['rejects']:<14}{s['stale']}")
+            s_["mark"], s_["state"] = "✗", "needs a human"
+            s_["last"] = s_["last"] or str(e["payload"].get("reason") or "")[:60]
+    kept = sum(1 for x in state.values() if x["state"] == "kept")
+    fin = any(e["type"] == "run.finished" for e in ev)
+    who = start.get("mode", "team")
+    print(f"{ns.run_id} · {'agent team' if who == 'team' else who.replace('outside: ', 'written by ')} · "
+          f"{'finished' if fin else 'still running'} · {kept} of {len(state)} kept\n")
+    width = max((len(n) for n in names.values()), default=8) + 2
+    for c, x in state.items():
+        notes = []
+        if x["tries"] > 1:
+            notes.append(f"{x['tries']} tries")
+        if x["found"]:
+            notes.append(f"tester found {x['found']} bad input{'s' if x['found'] != 1 else ''}" + (", fixed" if x["state"] == "kept" else ""))
+        if x["state"] != "kept" and x["last"]:
+            notes.append(x["last"])
+        print(f"  {x['mark']} {names[c]:<{width}}{x['state']:<16}{' · '.join(notes)}")
     hidden = [e for e in ev if e["type"] == "evaluation.locked"]
     if hidden:
         got, want = (sum(e["payload"]["cases"].get(k, 0) for e in hidden) for k in ("passed", "expected"))
-        print(f"\n  Hidden test set (never shown to the author): {'PASS' if got == want else 'FAIL'}  {got}/{want} match the original"
-              + ("" if got == want else "   -> passed the visible cases, but is NOT a correct translation"))
-    decisions = _jsonl(RUNS / ns.run_id / "decisions.jsonl")
-    if decisions:
-        d = decisions[-1]
-        print(f"\n  Latest decision {d['decision_id']} ({d['contract_id']} v{d['version']}), affects {', '.join(d['affected_chunks'])}:\n    {d['ruling'][:300]}")
+        print(f"\n  hidden tests: {got} of {want} match the original" + ("" if got == want else "  ✗ passed the visible tests but is not a correct translation"))
+    rules = len(_jsonl(RUNS / ns.run_id / "decisions.jsonl"))
+    if rules:
+        print(f"  expert rules made during the run: {rules}  (python env/show-run.py {ns.run_id} for the full story)")
     return 0
 
 

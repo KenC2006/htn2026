@@ -265,6 +265,38 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(text, "ok from conversation t.solo.r1")
         self.assertEqual([r["member"] for r in TEAM.restarts], ["solo"])
 
+    def test_a_dropped_connection_is_waited_out_in_the_same_conversation(self):
+        # Regression: a few seconds without network made four pieces spend all their tries on connection errors.
+        from types import SimpleNamespace
+        from unittest import mock
+        from parity.framework.team import MemberSpec
+        TEAM.reset("t")
+        TEAM.register(MemberSpec("solo", "solo", "prompt"))
+        calls, waits = [], []
+
+        async def invoke(inputs):
+            calls.append(inputs["conversation_id"])
+            if len(calls) < 3:
+                raise RuntimeError("[181001] model call failed, reason: openAI API async invoke error: APIConnectionError: Connection error.")
+            return {"output": "ok"}
+
+        async def fake_agent(member):
+            return SimpleNamespace(invoke=invoke, card=SimpleNamespace(id="t.solo"))
+
+        async def fake_sleep(seconds):
+            waits.append(seconds)
+
+        TEAM._agent = fake_agent
+        try:
+            with mock.patch("parity.framework.team.asyncio.sleep", fake_sleep):
+                text, _, _ = asyncio.run(TEAM.ask("solo", "go"))
+        finally:
+            del TEAM._agent
+        self.assertEqual(text, "ok")
+        self.assertEqual(calls, ["t.solo"] * 3, "same conversation every time: the member keeps its memory")
+        self.assertEqual(waits, [5, 15])
+        self.assertEqual(TEAM.restarts, [], "a network error is not a poisoned conversation")
+
     # ── CLI (no model calls) ──
     def _cli(self, fn, **kw):
         import argparse, contextlib, io
@@ -294,7 +326,7 @@ class FlowTest(unittest.TestCase):
         self.assertIn("+    ts.div_euclid(width) * width", (export / "migration.patch").read_text())
         self.assertIn("ACCEPTED, exportable", (export / "report.md").read_text())
         _, status = self._cli("status", run_id="run")
-        self.assertIn("accepted 3/3", status)
+        self.assertIn("3 of 3 kept", status)
         # A contract change after acceptance makes receipts stale: export must say so.
         d = self.ledger.record_decision(PROPOSAL, proposed_by="contract-steward", allowed_contracts=["time-arithmetic"])
         self.integ.invalidate(d["affected_chunks"], "contract changed")

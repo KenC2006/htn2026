@@ -64,6 +64,7 @@ class MemberSpec:
     serial: bool = False           # one question at a time (the steward)
     submit_tools: set = field(default_factory=set)     # calling one of these can end the turn ...
     is_done: Callable[[], bool] | None = None          # ... once this says everything was handed in
+    fresh_each_turn: bool = False  # every turn is a new conversation: what it must remember is in the prompt (rules, code)
 
 
 NETWORK_ERRORS = ("APIConnectionError", "Connection error", "APITimeoutError", "timed out", "RateLimitError", "429", "502", "503", "504")
@@ -81,18 +82,31 @@ class Team:
         self.outbox: dict[str, dict] = {}   # member -> result handed in through a submit_* tool
         self.restarts: list[dict] = []      # members given a fresh conversation after theirs became unusable
         self._generation: dict[str, int] = {}
+        self._carried: dict[str, int] = {}
 
     def register(self, spec: MemberSpec) -> None:
         self.specs[spec.name] = spec
 
     def reset(self, run_tag: str) -> None:
         self.specs.clear(), self._agents.clear(), self._rails.clear(), self._locks.clear(), self.outbox.clear()
-        self.restarts.clear(), self._generation.clear()
+        self.restarts.clear(), self._generation.clear(), self._carried.clear()
         self.run_tag = run_tag
+
+    def fresh(self, member: str) -> None:
+        """Next turn starts a new conversation. For members whose jobs are independent: the tester's bill tripled by
+        the third piece because every turn re-sent the earlier pieces' whole conversation."""
+        if member in self._agents:
+            self._drop(member)
+
+    def _drop(self, member: str) -> None:
+        self._carried[member] = self.tokens(member)  # the next conversation gets a new rail that counts from zero
+        self._agents.pop(member, None)
+        self._rails.pop(member, None)
+        self._generation[member] = self._generation.get(member, 0) + 1
 
     def tokens(self, member: str) -> int:
         rail = self._rails.get(member)
-        return rail.call_tokens if rail else 0
+        return self._carried.get(member, 0) + (rail.call_tokens if rail else 0)
 
     async def _agent(self, member: str) -> ReActAgent:
         if member in self._agents:
@@ -127,6 +141,8 @@ class Team:
         async with self._locks.setdefault(member, asyncio.Lock()):
             spent = 0
             fresh_start, waits = False, [5, 15, 30, 60, 60]
+            if self.specs[member].fresh_each_turn:
+                self.fresh(member)
             while True:
                 agent = await self._agent(member)
                 self.outbox.pop(member, None)
@@ -149,8 +165,7 @@ class Team:
                         raise
                     fresh_start = True
                     self.restarts.append({"member": member, "error": str(e)[:300]})
-                    self._agents.pop(member, None)
-                    self._generation[member] = self._generation.get(member, 0) + 1
+                    self._drop(member)
                     continue
                 text = out.get("output", "") if isinstance(out, dict) else str(out)
                 return text or "", spent + self.tokens(member) - before, self.outbox.pop(member, None)

@@ -238,7 +238,7 @@ async def run(args):
                       f"Counterexample: {json.dumps(v.counterexample)}\nPrevious files: {json.dumps(candidate['files'])}\nFix it.")
             if cid in blocked:
                 break
-        blocked.setdefault(cid, "attempts exhausted")
+        blocked.setdefault(cid, "ran out of tries")
         return None
 
     async def integrate(cid: str, candidate: dict | None) -> None:
@@ -254,13 +254,13 @@ async def run(args):
                 blocked[cid] = f"{v.status}: {v.detail[:300]}"
                 break
             candidate = await settle(cid, prior=candidate, stale_reason=v.detail)
-        blocked.setdefault(cid, "could not integrate")
+        blocked.setdefault(cid, "does not work together with the functions already kept")
         events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
 
     for level in levels:
         level = [c for c in level if c not in integ.accepted and not set(chunks[c].get("depends_on", [])) & set(blocked)]
         for skipped in [c for c in chunks if set(chunks[c].get("depends_on", [])) & set(blocked) and c not in blocked]:
-            blocked[skipped] = "a dependency is blocked"
+            blocked[skipped] = "a function it calls was not kept"
             events.emit("chunk.blocked", actor="scheduler", chunk_id=skipped, payload={"reason": blocked[skipped]})
         for i in range(0, len(level), MAX_WORKERS):
             batch = level[i:i + MAX_WORKERS]
