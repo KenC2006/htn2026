@@ -1,12 +1,14 @@
 # TypeScript to ArkTS in Parity
 
-Status: the three-function `ts-arkts-core` profile (delivery steps 1-4 below)
+Status: the three-function `ts-arkts-core` profile (delivery steps 1-5 below)
 is implemented and verified end-to-end on the real HarmonyOS 6.1.1 / API 24
-wearable emulator: `python -m parity check fixtures/telemetry-workbench/ts-arkts-core
-tests/arkts_known_good --no-tester` accepts all three chunks (`bucketStart`,
-`clampValue`, `summarizeBuckets`) and the locked hidden-case evaluation passes
-146 of 146. Agent-driven migration (step 5) and automatic TS onboarding
-(step 6) are not implemented yet.
+wearable emulator, including a full autonomous SwarmFlow run
+(`python -m parity run fixtures/telemetry-workbench/ts-arkts-core`): the
+planner, workers, a steward clarification and an adversarial tester all ran
+for real, all three chunks (`bucketStart`, `clampValue`, `summarizeBuckets`)
+were accepted, and the single-use locked evaluation passed 146 of 146 hidden
+cases (see `runs/arkts-agent-1/export/report.md`, gitignored). Automatic TS
+onboarding (step 6) is not implemented yet.
 Reference checkout: `37802f26cd53f6aba783bea41d437d9476bb26b7` (2026-09-19).
 Scope: Python-to-Rust is the implementation reference, per the user's direction.
 
@@ -223,7 +225,7 @@ candidate core modules must not import logging, platform I/O or source code.
 
 ## Delivery order and acceptance checks
 
-Steps 1-4 are done and reverified in this checkout; steps 5-6 are not started.
+Steps 1-5 are done and reverified in this checkout; step 6 is not started.
 
 1. **Foundation: done.** Ran the copied smoke project from the new checkout. Recorded
    the real runtime marker (`ARKTS_SMOKE_PASS:10`); validated public template and ignored signing files.
@@ -248,10 +250,20 @@ Steps 1-4 are done and reverified in this checkout; steps 5-6 are not started.
    Host-only protocol tests run without DevEco; the `parity check` command
    above is the separate integration command that explicitly requires the
    emulator and does not silently report a pass.
-5. **Agent workflow (not started):** Run existing SwarmFlow on this profile with a small
-   explicit budget. Demonstrate compile repair, a steward clarification,
-   deterministic rejection and acceptance. Run locked evaluation once at the
-   end; a failure stays in the receipts and prevents export.
+5. **Agent workflow: done.** Ran existing SwarmFlow on this profile with a small
+   explicit token budget (`--token-limit 300000`, run id `arkts-agent-1`,
+   day-to-day cheap models from `env/secrets.env`). The planner ordered T1/T2
+   in parallel then T3; a worker asked the steward one real clarification
+   about Map iteration in ArkTS, which was recorded as decision `D-001` and
+   applied; the adversarial tester ran dozens of extra inputs per chunk and
+   found zero mismatches; all three chunks were accepted on first or second
+   attempt with no gate rejections. `python -m parity evaluate arkts-agent-1`
+   passed the single-use locked evaluation 146/146, and
+   `python -m parity export arkts-agent-1` produced `migration.patch`,
+   `receipts.json`, `decisions.json` and `report.md`. Needs
+   `.venv-swarm` (`pip install workswarm==0.2.6`, brings in `openjiuwen`) and
+   `env/secrets.env` with a real OpenRouter key; run `python -m parity doctor`
+   first.
 6. **TS onboarding:** Only now add `scan_typescript`, ArkTS templates and
    language-aware CLI routing. Use the TypeScript compiler AST/type checker
    for exports, signatures and call dependencies, conservatively reject
