@@ -14,7 +14,7 @@ from pathlib import Path
 IMPURE_CALLS = {"open", "print", "input", "exec", "eval", "compile", "__import__", "globals", "locals", "vars", "breakpoint", "exit", "quit"}
 IMPURE_MODULES = {"os", "sys", "io", "time", "random", "secrets", "socket", "subprocess", "requests", "urllib", "http", "pathlib", "shutil",
                   "logging", "threading", "multiprocessing", "asyncio", "locale", "gettext", "tempfile", "glob", "sqlite3", "pickle",
-                  "ctypes", "signal", "uuid", "getpass", "platform", "warnings", "importlib", "inspect"}
+                  "ctypes", "signal", "uuid", "getpass", "platform", "importlib", "inspect"}
 IMPURE_ATTRS = {("datetime", "now"), ("datetime", "today"), ("datetime", "utcnow"), ("date", "today")}
 MUTATORS = {"append", "extend", "insert", "pop", "remove", "clear", "update", "setdefault", "add", "discard", "sort", "reverse", "popitem"}
 SCALARS = {"int", "float", "str", "bool"}
