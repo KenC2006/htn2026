@@ -35,7 +35,7 @@ ACCENT = picker.ACCENT
 
 COMMANDS = [
     ("/new <code>", "start from real code: a .py file, a folder, or a module name like humanize.number"),
-    ("/run", "migrate the project with the agent team"),
+    ("/run [folder]", "migrate the project with the agent team; with a folder, start from the translation in it and fix only what fails"),
     ("/check <folder> [name]", "check a translation someone else wrote"),
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
@@ -350,7 +350,7 @@ def handle(line: str, state: dict) -> bool:
     elif cmd == "run":
         state["last_run"] = _new_id("team")
         _save(state)
-        _call(["run", project, "--run-id", state["last_run"]])
+        _call(["run", project, "--run-id", state["last_run"]] + (["--start-from", args[0]] if args else []))
     elif cmd == "check":
         folder = args[0] if args else ""
         author = args[1] if len(args) > 1 else "outside"
