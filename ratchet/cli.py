@@ -2,8 +2,9 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
-  run <profile_dir> [--solo]  run the team migration (or the single-agent baseline)
+  run <profile_dir> [--solo] [--resume --run-id X]   team migration (or single-agent baseline); --resume continues a run
   status <run_id>             progress table rebuilt from the event log
+  evaluate <run_id>           single-use locked evaluation: cases never seen by agents or repair loops
   export <run_id>             patch + report.md + receipts.json (refuses to call a stale/blocked run accepted)
 """
 from __future__ import annotations
@@ -129,9 +130,11 @@ def scan(ns: argparse.Namespace) -> int:
 def run(ns: argparse.Namespace) -> int:
     run_id = ns.run_id or datetime.now().strftime(("solo-" if ns.solo else "run-") + "%m%d-%H%M%S")
     script = ROOT / "workflows" / ("baseline.py" if ns.solo else "migrate.py")
-    args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id})
+    if (RUNS / run_id / "events.jsonl").exists() and not ns.resume:
+        sys.exit(f"run {run_id} already exists. Continue it with --resume, or choose another --run-id.")
+    args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id, "resume": bool(ns.resume)})
     RUNS.mkdir(exist_ok=True)
-    with (RUNS / f"{run_id}.out").open("w", encoding="utf-8") as out:
+    with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
         code = subprocess.run([sys.executable, "-m", "ratchet.framework.run", str(script), "--args", args,
                                "--token-limit", str(ns.token_limit)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT).returncode
     status(argparse.Namespace(run_id=run_id))
@@ -167,7 +170,7 @@ def status(ns: argparse.Namespace) -> int:
         elif t == "chunk.blocked":
             s["state"] = f"BLOCKED: {e['payload'].get('reason')}"
     done = sum(1 for s in state.values() if s["state"] == "ACCEPTED")
-    fin = next((e for e in ev if e["type"] == "run.finished"), None)
+    fin = next((e for e in reversed(ev) if e["type"] == "run.finished"), None)
     print(f"Run {ns.run_id}  [{start.get('mode', 'team')}]  accepted {done}/{len(state)}  "
           f"{'finished' if fin else 'IN PROGRESS'}{'' if not fin or fin['payload'].get('exportable') else '  NOT EXPORTABLE'}")
     print(f"  {'chunk':<7}{'state':<36}{'turns':<7}{'asked':<7}{'gate rejects':<14}stale")
@@ -182,10 +185,35 @@ def status(ns: argparse.Namespace) -> int:
 
 # ───────────────────────── export ─────────────────────────
 
+def _locked_line(receipts: dict) -> str:
+    results = {c: r["locked_evaluation"] for c, r in receipts.items() if isinstance(r.get("locked_evaluation"), dict)}
+    if not results:
+        return "- Locked evaluation (cases never used for repair): **NOT_RUN**. Run `python -m ratchet evaluate <run_id>`."
+    passed = sum(r["cases"].get("passed", 0) for r in results.values())
+    total = sum(r["cases"].get("expected", 0) for r in results.values())
+    failed = [f"{c} (first: {(r.get('first_failure') or {}).get('case_id')})" for c, r in results.items() if r["status"] != "PASS"]
+    return (f"- Locked evaluation (cases never used for repair): **{'PASS' if not failed else 'FAIL'}**, {passed}/{total} cases"
+            + (f"; failing chunks: {', '.join(failed)}. Kept as a result, not repaired." if failed else ""))
+
+
+def evaluate(ns: argparse.Namespace) -> int:
+    from .engine.evaluate import locked_evaluate
+    ev = _events(ns.run_id)
+    profile_dir = Path(ns.profile_dir or ev[0]["payload"].get("profile_dir") or "").resolve()
+    if not (profile_dir / "profile.json").exists():
+        sys.exit("cannot find the profile; pass --profile-dir")
+    summary = locked_evaluate(RUNS / ns.run_id, profile_dir, force=ns.force)
+    print(f"Locked evaluation for {ns.run_id}: {summary['status']}  {summary.get('detail', '')}")
+    for cid, r in summary.get("chunks", {}).items():
+        print(f"  {cid:<6}{r['status']:<6}{r['cases'].get('passed', 0)}/{r['cases'].get('expected', 0)}"
+              + (f"   first failure: {json.dumps(r['first_failure'])[:200]}" if r["status"] != "PASS" else ""))
+    return 0 if summary["status"] == "PASS" else 1
+
+
 def export(ns: argparse.Namespace) -> int:
     run_dir = RUNS / ns.run_id
     ev = _events(ns.run_id)
-    start, fin = ev[0]["payload"], next((e["payload"] for e in ev if e["type"] == "run.finished"), None)
+    start, fin = ev[0]["payload"], next((e["payload"] for e in reversed(ev) if e["type"] == "run.finished"), None)
     profile_dir = Path(ns.profile_dir or start.get("profile_dir") or "").resolve()
     if not (profile_dir / "profile.json").exists():
         sys.exit("cannot find the profile; pass --profile-dir")
@@ -226,7 +254,7 @@ def export(ns: argparse.Namespace) -> int:
               "or the original source, and the candidate's build had no access to the original or to credentials.", "",
               f"- Gate rejections: **{len(rejections)}**; stale candidates re-dispatched: **{n('candidate.stale')}**",
               f"- Worker questions to the steward: **{n('worker.question')}**; steward probes of the original: **{n('tool.probe_source')}**; "
-              f"decisions recorded: **{len(decisions)}**", "- Locked evaluation: **NOT_RUN**", ""]
+              f"decisions recorded: **{len(decisions)}**", _locked_line(receipts), ""]
     if rejections:
         lines += ["### Rejected candidates", ""]
         for v in rejections:
@@ -262,8 +290,12 @@ def main() -> None:
     sub.add_parser("doctor").set_defaults(fn=doctor)
     p = sub.add_parser("scan"); p.add_argument("profile_dir"); p.set_defaults(fn=scan)
     p = sub.add_parser("run"); p.add_argument("profile_dir"); p.add_argument("--solo", action="store_true")
-    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000); p.set_defaults(fn=run)
+    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
+    p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
+    p.set_defaults(fn=run)
     p = sub.add_parser("status"); p.add_argument("run_id"); p.set_defaults(fn=status)
+    p = sub.add_parser("evaluate"); p.add_argument("run_id"); p.add_argument("--profile-dir")
+    p.add_argument("--force", action="store_true", help="re-run a single-use locked evaluation"); p.set_defaults(fn=evaluate)
     p = sub.add_parser("export"); p.add_argument("run_id"); p.add_argument("--profile-dir"); p.set_defaults(fn=export)
     ns = ap.parse_args()
     sys.exit(ns.fn(ns))

@@ -16,7 +16,7 @@ class EventLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         # Resume-safe: continue the sequence from whatever is already on disk.
-        self._seq = sum(1 for _ in self.path.open(encoding="utf-8")) if self.path.exists() else 0
+        self._seq = len(self.path.read_text(encoding="utf-8").splitlines()) if self.path.exists() else 0
 
     def emit(self, type: str, *, actor: str, profile: str | None = None, chunk_id: str | None = None,
              attempt_id: str | None = None, payload: dict | None = None) -> dict:

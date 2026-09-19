@@ -19,16 +19,20 @@
   "verify_seconds": 120,
   "frozen": [
     "profile.json",
+    "gen_cases.py",
     "chunks/*",
     "contracts/*",
     "legacy/*",
     "harness/*",
     "runners/*",
-    "cases.jsonl"
+    "cases.jsonl",
+    "locked/*"
   ],
   "oracle_paths": [
     "legacy",
-    "cases.jsonl"
+    "cases.jsonl",
+    "locked",
+    "gen_cases.py"
   ],
   "forbid_patterns": [
     {
@@ -39,5 +43,6 @@
       "regex": "\\b(todo|unimplemented)!",
       "why": "stub macro"
     }
-  ]
+  ],
+  "locked_cases": "locked/cases.jsonl"
 }

@@ -67,12 +67,17 @@ async def run(args):
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     chunks = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in sorted((profile_dir / "chunks").glob("*.json"))}
 
+    resuming = (run_dir / "events.jsonl").exists()
+    if resuming and not args.get("resume"):
+        raise ValueError(f"run {run_dir.name} already exists; pass resume or pick another run_id")
     events = EventLog(run_dir, run_dir.name)
-    gate.freeze(profile_dir)
+    fixture_hash = gate.freeze(profile_dir)["fixture_hash"]
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)
     integ = Integrator(profile_dir, run_dir, cases_path, ledger, events)
     levels = _levels(chunks)
-    events.emit("run.started", actor="scheduler", profile=profile["profile"], payload={"chunks": list(chunks), "levels": levels, "profile_dir": str(profile_dir)})
+    reused = integ.load_existing(chunks, fixture_hash) if resuming else []
+    events.emit("run.resumed" if resuming else "run.started", actor="scheduler", profile=profile["profile"],
+                payload={"chunks": list(chunks), "levels": levels, "profile_dir": str(profile_dir), "reused": reused})
     attempts = {c: 0 for c in chunks}
     stale_seq = {c: 0 for c in chunks}
     ctx = RunContext(profile_dir, run_dir, cases_path, profile, chunks, ledger, integ, events)
@@ -185,7 +190,7 @@ async def run(args):
         events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
 
     for level in levels:
-        level = [c for c in level if not set(chunks[c].get("depends_on", [])) & set(blocked)]
+        level = [c for c in level if c not in integ.accepted and not set(chunks[c].get("depends_on", [])) & set(blocked)]
         for skipped in [c for c in chunks if set(chunks[c].get("depends_on", [])) & set(blocked) and c not in blocked]:
             blocked[skipped] = "a dependency is blocked"
             events.emit("chunk.blocked", actor="scheduler", chunk_id=skipped, payload={"reason": blocked[skipped]})

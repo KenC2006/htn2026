@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from openjiuwen.agent_teams.workflow.engine import BudgetLedger, run_workflow
@@ -34,7 +35,8 @@ async def _main(ns: argparse.Namespace) -> int:
     runs.mkdir(exist_ok=True)
     wf_args = json.loads(ns.args) if ns.args else None
     tag = (wf_args or {}).get("run_id") if isinstance(wf_args, dict) else None
-    journal = runs / f"{Path(ns.script).stem}{'.' + tag if tag else ''}.journal.json"  # one journal per run, so runs can overlap
+    (runs / "_journals").mkdir(exist_ok=True)
+    journal = runs / "_journals" / f"{Path(ns.script).stem}.{tag or 'run'}.{int(time.time())}.journal.json"  # fresh per process; resume is done by the engine from receipts
     backend = TeamBackend()
     spend0 = _spend()
     result = await run_workflow(

@@ -44,8 +44,11 @@ async def run(args):
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     chunks = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in sorted((profile_dir / "chunks").glob("*.json"))}
 
+    resuming = (run_dir / "events.jsonl").exists()
+    if resuming and not args.get("resume"):
+        raise ValueError(f"run {run_dir.name} already exists; pass resume or pick another run_id")
     events = EventLog(run_dir, run_dir.name)
-    gate.freeze(profile_dir)
+    fixture_hash = gate.freeze(profile_dir)["fixture_hash"]
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)
     integ = Integrator(profile_dir, run_dir, cases_path, ledger, events)
     ctx = RunContext(profile_dir, run_dir, cases_path, profile, chunks, ledger, integ, events)
@@ -59,12 +62,16 @@ async def run(args):
             raise ValueError("dependency cycle in chunk manifests")
         order += ready
         done |= set(ready)
-    events.emit("run.started", actor="scheduler", profile=profile["profile"], payload={"chunks": order, "mode": "single-agent", "profile_dir": str(profile_dir)})
+    reused = integ.load_existing(chunks, fixture_hash) if resuming else []
+    events.emit("run.resumed" if resuming else "run.started", actor="scheduler", profile=profile["profile"],
+                payload={"chunks": order, "mode": "single-agent", "profile_dir": str(profile_dir), "reused": reused})
     blocked: dict[str, str] = {}
     phase("Migrate")
 
     for cid in order:
         m = chunks[cid]
+        if cid in integ.accepted:
+            continue
         if set(m.get("depends_on", [])) & set(blocked):
             blocked[cid] = "a dependency is blocked"
             events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})

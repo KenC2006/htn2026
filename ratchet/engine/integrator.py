@@ -28,6 +28,30 @@ class Integrator:
         self._lock = threading.Lock()
         self._n = 0
 
+    def load_existing(self, chunks: dict, fixture_hash: str) -> list[str]:
+        """Resume: reuse chunks accepted earlier in this run, but only if their evidence still holds.
+
+        A receipt is reused when it is ACCEPTED, was issued for the same frozen fixture, and was issued
+        under the contract versions that are current now. Anything else is redone.
+        """
+        reused = []
+        for path in sorted((self.run_dir / "receipts").glob("*.json"), key=lambda p: p.stat().st_mtime):
+            r = json.loads(path.read_text(encoding="utf-8"))
+            cid = r["chunk_id"]
+            want = self.ledger.hashes(chunks.get(cid, {}).get("contract_ids", []))
+            have = {k: v for k, v in r.get("contract_hashes", {}).items() if k in want}
+            files = {p: self.run_dir / "accepted" / p for p in chunks.get(cid, {}).get("write_allowlist", [])}
+            if (r.get("status") != "ACCEPTED" or r.get("fixture_hash") != fixture_hash or have != want
+                    or not files or not all(f.exists() for f in files.values())
+                    or not set(chunks[cid].get("depends_on", [])) <= set(self.accepted)):
+                continue
+            for p, f in files.items():
+                self.files[p], self.owner[p] = f.read_text(encoding="utf-8"), cid
+            self.accepted.append(cid)
+            reused.append(cid)
+            self.events.emit("chunk.resumed", actor="integrator", chunk_id=cid, payload={"reason": "ACCEPTED", "receipt": path.name})
+        return reused
+
     def tree_hash(self) -> str:
         return hashlib.sha256(json.dumps(self.files, sort_keys=True).encode()).hexdigest()
 

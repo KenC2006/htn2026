@@ -110,7 +110,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 
 Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
 `tool.probe_source` (the steward ran the original), `tool.check_compile`, `steward.consulted` (scheduler sent a counterexample),
-`steward.answered`, `decision.recorded`, `decision.rejected`, `chunk.revalidated` (accepted code re-checked after a contract change),
+`steward.answered`, `decision.recorded`, `decision.rejected`, `run.resumed`, `chunk.resumed` (reused from a still-valid receipt), `evaluation.locked`, `chunk.revalidated` (accepted code re-checked after a contract change),
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
 `chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
 
@@ -140,3 +140,10 @@ Gate verdict `reason` values (in gate order): `STALE`, `REJECTED_POLICY`, `REJEC
 ```
 
 Workers have three tools only (ask the steward, compile, submit). The gate builds and runs what they submit. See `ARCHITECTURE.md`.
+
+## 5. Locked evaluation (route owners: please provide one)
+
+Add to `profile.json`: `"locked_cases": "locked/cases.jsonl"`, and put `"locked/*"` in `frozen` and `"locked"` in `oracle_paths`.
+Same case format as `cases.jsonl`, generated with **different seeds** from your development cases (see `tests/flow_fixture/gen_cases.py`).
+`python -m ratchet evaluate <run_id>` runs the accepted tree against them exactly once, after the run. Results go into each receipt's
+`locked_evaluation` and into `report.md`. A failure is kept as a result and makes the run non-exportable; it is never fed back to an agent.

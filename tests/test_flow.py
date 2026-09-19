@@ -131,6 +131,58 @@ class FlowTest(unittest.TestCase):
         self.assertIn("needs a human", ctx.blocked["S1"])
         self.assertEqual(self.ledger.contracts["time-arithmetic"]["version"], 1)
 
+    # ── resume ──
+    def test_resume_reuses_accepted_chunks_only_while_their_evidence_still_holds(self):
+        fixture_hash = json.loads((self.profile / gate.LOCK_NAME).read_text())["fixture_hash"]
+        self.assertTrue(self.integ.integrate("S1", self.cand("target/bucket.rs", BUCKET)).accepted)
+        self.assertTrue(self.integ.integrate("S2", self.cand("target/offset.rs", OFFSET)).accepted)
+
+        def restarted():  # a new process: fresh ledger and integrator over the same run folder
+            ledger = ContractLedger(self.profile, self.run_dir, self.chunks, self.events)
+            return ledger, Integrator(self.profile, self.run_dir, self.profile / "cases.jsonl", ledger, self.events)
+
+        _, integ = restarted()
+        self.assertEqual(integ.load_existing(self.chunks, fixture_hash), ["S1", "S2"])
+        self.assertTrue(integ.integrate("S3", {"files": [{"path": "target/split.rs", "content": SPLIT}],
+                                               "contract_hashes": self.ledger.hashes()}).accepted)  # builds on the reused tree
+        _, integ = restarted()
+        self.assertEqual(integ.load_existing(self.chunks, "a-different-fixture"), [])
+        # A decision recorded just before the crash: receipts issued under the old version are not reused.
+        self.ledger.record_decision(PROPOSAL, proposed_by="contract-steward", allowed_contracts=["time-arithmetic"])
+        _, integ = restarted()
+        self.assertEqual(integ.load_existing(self.chunks, fixture_hash), [])
+
+    # ── locked evaluation ──
+    def _accept_tree(self, offset_code=OFFSET):
+        self.events.emit("run.started", actor="scheduler", payload={"chunks": ["S1", "S2", "S3"], "profile_dir": str(self.profile)})
+        for cid, path, code in (("S1", "target/bucket.rs", BUCKET), ("S2", "target/offset.rs", offset_code), ("S3", "target/split.rs", SPLIT)):
+            self.assertTrue(self.integ.integrate(cid, self.cand(path, code)).accepted)
+        self.events.emit("run.finished", actor="scheduler", payload={"accepted": self.integ.accepted, "exportable": True, "accepted_tree": self.integ.tree_hash()})
+
+    def test_locked_evaluation_passes_a_correct_tree_and_is_single_use(self):
+        from ratchet.engine.evaluate import locked_evaluate
+        self._accept_tree()
+        summary = locked_evaluate(self.run_dir, self.profile)
+        self.assertEqual(summary["status"], "PASS")
+        self.assertEqual({c: r["cases"]["passed"] for c, r in summary["chunks"].items()}, {"S1": 100, "S2": 100, "S3": 100})
+        self.assertEqual(locked_evaluate(self.run_dir, self.profile)["status"], "ALREADY_RUN")
+        self.assertFalse((self.run_dir / "candidates" / "S1-locked-eval" / "locked").exists())  # hidden from the candidate
+
+    def test_locked_evaluation_catches_what_development_cases_missed(self):
+        from ratchet.engine.evaluate import locked_evaluate
+        # Passes all 27 development cases (none uses width 7), but is wrong.
+        sneaky = "pub fn offset(ts: i64, width: i64) -> i64 {\n    if width == 7 { ts % width } else { ts.rem_euclid(width) }\n}\n"
+        self._accept_tree(offset_code=sneaky)
+        summary = locked_evaluate(self.run_dir, self.profile)
+        self.assertEqual(summary["status"], "FAIL")
+        self.assertEqual(summary["chunks"]["S1"]["status"], "PASS")
+        self.assertEqual(summary["chunks"]["S2"]["status"], "FAIL")
+        self.assertEqual(summary["chunks"]["S2"]["first_failure"]["input"]["width"], 7)
+        self.assertEqual(json.loads((self.run_dir / "receipts" / "S2.json").read_text())["status"], "FAILED_LOCKED_EVALUATION")
+        code, _ = self._cli("export", run_id="run", profile_dir=None)
+        self.assertEqual(code, 1)
+        self.assertIn("Locked evaluation (cases never used for repair): **FAIL**", (self.run_dir / "export" / "report.md").read_text())
+
     def test_handed_in_requires_every_allowlisted_file(self):
         TEAM.reset("t")
         ctx = self.ctx()
