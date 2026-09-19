@@ -16,11 +16,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
-from . import cli
+from . import cli, picker
 
 ROOT, RUNS = cli.ROOT, cli.RUNS
 STATE = RUNS / ".console.json"
 console = Console()
+ACCENT = picker.ACCENT
 
 COMMANDS = [
     ("/run", "migrate the project with the agent team"),
@@ -28,9 +29,9 @@ COMMANDS = [
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
     ("/export [run]", "write the patch, report and receipts"),
-    ("/mode [name]", "switch the migration: Python → Rust, C → Rust, TypeScript → ArkTS"),
+    ("/mode", "switch the migration: Python → Rust, C → Rust, TypeScript → ArkTS"),
     ("/use <folder>", "point at a specific project folder"),
-    ("/models [workers|expert <id>]", "show or change the models"),
+    ("/models", "change which AI models the agents use"),
     ("/quit", "leave"),
 ]
 
@@ -114,26 +115,17 @@ def choose_mode(state: dict, word: str = "") -> None:
         if pick is None:
             console.print(f"[red]no mode called {word}[/red]")
     if pick is None:
-        t = Table(box=None, padding=(0, 2), show_header=False)
-        for i, (src, tgt, _, tools) in enumerate(pairs):
+        options = []
+        for src, tgt, _, tools in pairs:
             folders = projects.get((src, tgt), [])
             missing = [x for x in tools if not shutil.which(x)]
-            if not folders:
-                note = Text("no project folder yet", style="dim")
-            elif missing:
-                note = Text(f"needs {', '.join(missing)} installed", style="yellow")
-            else:
-                note = Text(f"ready  ·  {', '.join(os.path.relpath(f, ROOT).replace(os.sep, '/') for f in folders)}", style="green")
-            mark = Text("●" if (src, tgt) == current else " ", style="bold #00e0c4")
-            t.add_row(mark, Text(str(i + 1), style="bold"), Text(f"{src} → {tgt}", style="bold" if folders else "dim"), note)
-        console.print(t)
-        try:
-            answer = console.input("[dim]  number, or Enter to keep the current one:[/dim] ").strip()
-        except (EOFError, KeyboardInterrupt):
+            note = ("no project folder yet" if not folders else f"needs {', '.join(missing)} installed" if missing
+                    else "ready  ·  " + ", ".join(os.path.relpath(f, ROOT).replace(os.sep, "/") for f in folders))
+            options.append((f"{src} → {tgt}" + ("   (current)" if (src, tgt) == current else ""), note, bool(folders)))
+        start = next((i for i, (a, b, _, _) in enumerate(pairs) if (a, b) == current), 0)
+        pick = picker.pick(console, "Migration", options, start)
+        if pick is None:
             return
-        if not answer.isdigit() or not 1 <= int(answer) <= len(pairs):
-            return
-        pick = int(answer) - 1
     src, tgt, _, _ = pairs[pick]
     folders = projects.get((src, tgt), [])
     if not folders:
@@ -141,15 +133,47 @@ def choose_mode(state: dict, word: str = "") -> None:
         return
     folder = folders[0]
     if len(folders) > 1:
-        for i, f in enumerate(folders):
-            console.print(f"  [bold]{i + 1}[/bold]  {os.path.relpath(f, ROOT).replace(os.sep, '/')}")
-        try:
-            answer = console.input("[dim]  which project:[/dim] ").strip()
-        except (EOFError, KeyboardInterrupt):
+        i = picker.pick(console, "Project", [(os.path.relpath(f, ROOT).replace(os.sep, "/"), "", True) for f in folders])
+        if i is None:
             return
-        folder = folders[int(answer) - 1] if answer.isdigit() and 1 <= int(answer) <= len(folders) else folders[0]
+        folder = folders[i]
     state["project"] = str(folder)
     console.print(Text.assemble(("  mode  ", "#00e0c4"), (f"{src} → {tgt}", "bold"), (f"  ·  {_project_line(folder).split('  ·  ', 1)[1]}", "default")))
+
+
+MODELS = [("qwen/qwen3-coder-next", "$0.12 in / $0.80 out per million tokens  ·  fast, cheap"),
+          ("deepseek/deepseek-v4.1-flash", "$0.15 / $0.60  ·  untested here"),
+          ("moonshotai/kimi-k2.7-code", "$0.71 / $3.21  ·  reasoning model, slower"),
+          ("anthropic/claude-sonnet-5", "$2 / $10"),
+          ("anthropic/claude-opus-5", "$5 / $25"),
+          ("anthropic/claude-fable-5.1", "$10 / $50  ·  about 25x the cost of qwen per run")]
+ROLES = [("planner and workers", "MODEL_NAME"), ("expert and tester", "REVIEWER_MODEL")]
+
+
+def choose_model(args: list[str]) -> None:
+    words = {"workers": 0, "worker": 0, "planner": 0, "expert": 1, "tester": 1}
+    if len(args) == 2 and args[0] in words:                       # /models expert <id>
+        os.environ[ROLES[words[args[0]]][1]] = args[1]
+    else:
+        role = picker.pick(console, "Which agents?", [(name, os.environ.get(var, "not set"), True) for name, var in ROLES])
+        if role is None:
+            return
+        var = ROLES[role][1]
+        ids = [m for m, _ in MODELS]
+        options = [(m + ("   (current)" if m == os.environ.get(var) else ""), note, True) for m, note in MODELS] + [("another model…", "type an OpenRouter id", True)]
+        i = picker.pick(console, f"Model for the {ROLES[role][0]}", options, ids.index(os.environ[var]) if os.environ.get(var) in ids else 0)
+        if i is None:
+            return
+        if i == len(MODELS):
+            typed = console.input("[dim]  OpenRouter model id:[/dim] ").strip()
+            if not typed:
+                return
+            os.environ[var] = typed
+        else:
+            os.environ[var] = ids[i]
+    for name, var in ROLES:
+        console.print(Text.assemble((f"  {name:<21}", ACCENT), (os.environ.get(var, "not set"), "default")), highlight=False)
+    console.print("  [dim]for this session only; the default lives in env/secrets.env[/dim]")
 
 
 def _pair(folder: Path) -> tuple[str, str]:
@@ -299,18 +323,17 @@ def handle(line: str, state: dict) -> bool:
             _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]])
             _call(["status", state["last_run"]])
     elif cmd in ("status", "evaluate", "export"):
-        if last():
-            _call([cmd, last()])
-        else:
-            console.print("no run yet: try /run")
+        run_id = args[0] if args else None
+        if run_id is None:
+            rows = _run_rows(12)
+            i = picker.pick(console, f"Which run to {cmd}?", [(r["id"], f"{r['mode']}  ·  {r['kept']}/{r['pieces']} kept", True) for r in rows]) if rows else None
+            run_id = rows[i]["id"] if i is not None else None
+        if run_id:
+            _call([cmd, run_id])
     elif cmd == "runs":
         show_runs()
     elif cmd in ("models", "model"):
-        keys = {"workers": "MODEL_NAME", "worker": "MODEL_NAME", "expert": "REVIEWER_MODEL"}
-        if len(args) == 2 and args[0] in keys:
-            os.environ[keys[args[0]]] = args[1]
-        console.print(f"workers  {os.environ.get('MODEL_NAME')}\nexpert   {os.environ.get('REVIEWER_MODEL')}\n"
-                      "[dim]change for this session: /models workers <openrouter id>   /models expert <openrouter id>[/dim]")
+        choose_model(args)
     elif cmd == "doctor":
         _call(["doctor"])
     else:
