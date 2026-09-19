@@ -25,6 +25,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
@@ -34,6 +35,13 @@ from .events import EventLog
 LOCK_NAME = "frozen.lock.json"
 MAX_FILE_BYTES = 200_000
 _SECRET_ENV = re.compile(r"(KEY|TOKEN|SECRET|PASSWORD|API_BASE|CREDENTIAL)", re.I)
+CASES_NAME = "_cases.jsonl"
+
+_BUILD_LOCK = threading.Lock()
+_ORACLE: dict = {}
+_ORACLE_LOCK = threading.Lock()
+_PARSED: dict = {}
+_PARSED_LOCK = threading.Lock()
 
 
 @dataclass
@@ -46,6 +54,7 @@ class Verdict:
     profile: str = ""
     cases: dict = field(default_factory=dict)
     counterexample: dict | None = None
+    counterexamples: list = field(default_factory=list)
     mismatched_case_ids: list = field(default_factory=list)
     contract_hashes: dict = field(default_factory=dict)
     fixture_hash: str = ""
@@ -66,6 +75,25 @@ def _sha(data: bytes) -> str:
 
 def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _parsed(path: Path, load):
+    st = path.stat()
+    key = (str(path), st.st_mtime_ns, st.st_size, load.__name__)
+    with _PARSED_LOCK:
+        hit = _PARSED.get(key)
+    if hit is not None:
+        return hit
+    val = load(path)
+    with _PARSED_LOCK:
+        _PARSED[key] = val
+        while len(_PARSED) > 32:
+            _PARSED.pop(next(iter(_PARSED)))
+    return val
 
 
 def _scrubbed_env() -> dict:
@@ -96,11 +124,17 @@ def _run(argv: list[str], cwd: Path, timeout: float) -> tuple[int | None, str]:
 
 def _frozen_files(profile_dir: Path, profile: dict) -> list[str]:
     patterns = profile.get("frozen", [])
-    out = []
-    for p in sorted(profile_dir.rglob("*")):
-        rel = p.relative_to(profile_dir).as_posix()
-        if p.is_file() and rel != LOCK_NAME and not _is_junk(rel) and any(fnmatch.fnmatch(rel, pat) for pat in patterns):
-            out.append(rel)
+    out, stack = [], [(str(profile_dir), "")]
+    while stack:
+        d, base = stack.pop()
+        with os.scandir(d) as it:
+            for e in it:
+                rel = base + e.name
+                if e.is_dir(follow_symlinks=False):
+                    if e.name != "__pycache__":
+                        stack.append((e.path, rel + "/"))
+                elif rel != LOCK_NAME and not _is_junk(rel) and any(fnmatch.fnmatch(rel, pat) for pat in patterns):
+                    out.append(rel)
     return out
 
 
@@ -108,7 +142,7 @@ def freeze(profile_dir: Path) -> dict:
     """Record hashes of everything workers must never change. Run once before any worker runs."""
     profile_dir = Path(profile_dir)
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
-    files = {rel: _sha((profile_dir / rel).read_bytes()) for rel in _frozen_files(profile_dir, profile)}
+    files = {rel: _sha((profile_dir / rel).read_bytes()) for rel in sorted(_frozen_files(profile_dir, profile))}
     lock = {"schema_version": 1, "files": files,
             "fixture_hash": _sha(json.dumps(files, sort_keys=True).encode())}
     (profile_dir / LOCK_NAME).write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -136,8 +170,8 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
     fail_status: report build/test/behavior failures under this status (REJECTED_INTEGRATION)."""
     t0 = time.monotonic()
     profile_dir, run_dir = Path(profile_dir).resolve(), Path(run_dir).resolve()
-    profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
-    chunk = json.loads((profile_dir / "chunks" / f"{chunk_id}.json").read_text(encoding="utf-8"))
+    profile = _parsed(profile_dir / "profile.json", _read_json)
+    chunk = _parsed(profile_dir / "chunks" / f"{chunk_id}.json", _read_json)
     attempt_id = attempt_id or f"{chunk_id}:1"
     files = candidate.get("files") or []
     v = Verdict(status="", stage="", chunk_id=chunk_id, attempt_id=attempt_id, profile=profile["profile"],
@@ -208,10 +242,11 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
     v.fixture_hash = lock["fixture_hash"]
     if set(_frozen_files(profile_dir, profile)) != set(lock["files"]):
         return done("REJECTED_INTEGRITY", "harness_integrity", "frozen file set changed since freeze")
+    cand_paths = {f["path"] for f in files}
     for rel, digest in lock["files"].items():
         if _sha((profile_dir / rel).read_bytes()) != digest:
             return done("REJECTED_INTEGRITY", "harness_integrity", f"{rel} changed since freeze")
-        if rel in {f["path"] for f in files}:
+        if rel in cand_paths:
             return done("REJECTED_INTEGRITY", "harness_integrity", f"candidate tries to replace frozen file {rel}")
 
     # Fresh workspace: fixture minus the oracle, plus the candidate's files.
@@ -238,33 +273,86 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
 
     # Only this chunk's cases. Inputs go into the workspace; expected outputs never do.
     wanted = set(case_chunks or [chunk_id])
-    cases = [c for c in _read_jsonl(Path(cases_path)) if c.get("chunk_id") is None or c["chunk_id"] in wanted]
+    cases = [c for c in _parsed(Path(cases_path), _read_jsonl) if c.get("chunk_id") is None or c["chunk_id"] in wanted]
     ids = [c["case_id"] for c in cases]
     if not cases or len(set(ids)) != len(ids):
         return done("BLOCKED", "case_inventory", "no cases for this chunk, or duplicate case_id in the case file")
     obs_dir = run_dir / "observations" / attempt_id.replace(":", "-")
     obs_dir.mkdir(parents=True, exist_ok=True)
-    ws_cases = ws / "_cases.jsonl"
+    ws_cases = ws / CASES_NAME
     ws_cases.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8", newline="\n")
     limit = float(chunk.get("limits", {}).get("verify_seconds_per_attempt") or profile.get("verify_seconds", 180))
 
     # 5. Build with the real target compiler.
     if profile.get("build_target"):
-        code, log = _run(profile["build_target"], ws, limit)
-        v.logs["build"] = log
-        if code != 0:
-            return done("REJECTED_BUILD", "build", log[-1500:])
+        argv = profile["build_target"]
+        pre = {f for f in ws.rglob("*") if f.is_file()}
+        which = shutil.which(argv[0]) or argv[0]
+        key = _sha(json.dumps([argv, which, os.path.getmtime(which) if os.path.exists(which) else 0,
+                               sorted((p.relative_to(ws).as_posix(), _sha(p.read_bytes()))
+                                      for p in pre if p.name != CASES_NAME)]).encode())[:32]   # short: MAX_PATH on Windows
+        cached = run_dir / ".build-cache" / key
+        if (cached / "fail.log").exists():
+            v.logs["build"] = (cached / "fail.log").read_text(encoding="utf-8")
+            return done("REJECTED_BUILD", "build", v.logs["build"][-1500:])
+        if (cached / "out").is_dir():
+            for p in (cached / "out").rglob("*"):
+                if p.is_file():
+                    dest = ws / p.relative_to(cached / "out")
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(p, dest)     # copy2, not copyfile: the restored binary must stay executable
+            v.logs["build"] = (cached / "log.txt").read_text(encoding="utf-8") if (cached / "log.txt").exists() else ""
+        else:
+            code, log = _run(argv, ws, limit)
+            v.logs["build"] = log
+            if code is not None:
+                tmp = run_dir / ".build-cache" / f"t{os.getpid()}-{threading.get_ident()}"
+                shutil.rmtree(tmp, ignore_errors=True)   # a leftover from a killed run must not be published
+                (tmp / "out").mkdir(parents=True, exist_ok=True)
+                if code == 0:
+                    for p in {f for f in ws.rglob("*") if f.is_file()} - pre:
+                        dest = tmp / "out" / p.relative_to(ws)
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(p, dest)
+                    (tmp / "log.txt").write_text(log, encoding="utf-8", newline="\n")
+                else:
+                    (tmp / "fail.log").write_text(log, encoding="utf-8", newline="\n")
+                with _BUILD_LOCK:
+                    try:
+                        os.replace(tmp, cached)
+                    except OSError:
+                        shutil.rmtree(tmp, ignore_errors=True)
+            if code != 0:
+                return done("REJECTED_BUILD", "build", log[-1500:])
 
     if stop_after_build:  # compile-only tool for workers: no cases run, nothing about behavior is revealed
         return done("BUILD_OK", "build", v.logs.get("build", "")[-1500:])
 
     # Source oracle runs from the frozen fixture, never from the workspace.
     src_obs_path = obs_dir / "source_obs.jsonl"
-    code, log = _run([*profile["run_source"], "--cases", str(ws_cases), "--out", str(src_obs_path)], profile_dir, limit)
-    v.logs["run_source"] = log
-    if code != 0 or not src_obs_path.exists():
-        return done("BLOCKED", "oracle", f"source runner failed (exit {code}): {log[-800:]}")
-    src = {o["case_id"]: o for o in _read_jsonl(src_obs_path)}
+    fkey = _sha(json.dumps(lock["files"], sort_keys=True).encode())
+    okeys = {c["case_id"]: (fkey, c.get("export"), _sha(json.dumps(c["input"], sort_keys=True).encode())) for c in cases}
+    with _ORACLE_LOCK:
+        src = {cid: dict(_ORACLE[k], case_id=cid) for cid, k in okeys.items() if k in _ORACLE}
+    miss = [c for c in cases if c["case_id"] not in src]
+    if miss:
+        miss_cases, miss_obs = ws_cases, src_obs_path
+        if len(miss) != len(cases):
+            miss_cases, miss_obs = obs_dir / "miss_cases.jsonl", obs_dir / "miss_obs.jsonl"
+            miss_cases.write_text("".join(json.dumps(c) + "\n" for c in miss), encoding="utf-8", newline="\n")
+        code, log = _run([*profile["run_source"], "--cases", str(miss_cases), "--out", str(miss_obs)], profile_dir, limit)
+        v.logs["run_source"] = log
+        if code != 0 or not miss_obs.exists():
+            return done("BLOCKED", "oracle", f"source runner failed (exit {code}): {log[-800:]}")
+        fresh = {o["case_id"]: o for o in _read_jsonl(miss_obs)}
+        src.update(fresh)
+        with _ORACLE_LOCK:
+            for c in miss:
+                o = fresh.get(c["case_id"])
+                if o and o.get("status") in ("ok", "error"):
+                    _ORACLE[okeys[c["case_id"]]] = o
+    src_obs_path.write_text("".join(json.dumps(src[c["case_id"]]) + "\n" for c in cases if c["case_id"] in src),
+                            encoding="utf-8", newline="\n")
     bad_oracle = [i for i in ids if i not in src or src[i]["status"] not in ("ok", "error")]
     if bad_oracle:
         return done("BLOCKED", "oracle", f"oracle has no defined behavior for {bad_oracle[:5]}")
@@ -298,12 +386,14 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
             v.cases["passed"] += 1
         else:
             v.mismatched_case_ids.append(cid)
-            if v.counterexample is None:
-                v.counterexample = {"case_id": cid, "input": by_id[cid]["input"],
-                                    "source": {k: s.get(k) for k in ("status", "value", "error_code")},
-                                    "target": {k: t.get(k) for k in ("status", "value", "error_code", "diagnostics")}}
     if v.mismatched_case_ids:
         n = len(v.mismatched_case_ids)
+        pick = v.mismatched_case_ids[:: max(1, n // 5)][:5]
+        v.counterexamples = [{"case_id": c, "input": by_id[c]["input"],
+                              "source": {k: src[c].get(k) for k in ("status", "value", "error_code")},
+                              "target": {k: tgt[c].get(k) for k in ("status", "value", "error_code", "diagnostics")}}
+                             for c in pick]
+        v.counterexample = v.counterexamples[0]
         return done("REJECTED_BEHAVIOR", "differential", f"{n} of {len(ids)} cases differ; first: {v.mismatched_case_ids[0]}")
 
     return done("ACCEPTED", "differential", f"{len(ids)} of {len(ids)} cases match")

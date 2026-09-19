@@ -102,14 +102,15 @@ def _fits_mode(state: dict, what: str) -> bool:
 def _run_rows(limit: int = 10) -> list[dict]:
     rows = []
     for d in sorted((p for p in RUNS.iterdir() if (p / "events.jsonl").exists()), key=lambda p: -(p / "events.jsonl").stat().st_mtime)[:limit] if RUNS.exists() else []:
-        ev = cli._jsonl(d / "events.jsonl")
-        start = ev[0]["payload"] if ev else {}
-        fin = next((e["payload"] for e in reversed(ev) if e["type"] == "run.finished"), None)
-        hidden = [e["payload"]["cases"] for e in ev if e["type"] == "evaluation.locked"]
+        path = d / "events.jsonl"
+        lines = [b for b in path.read_bytes().split(b"\n") if b.strip()]
+        start = json.loads(lines[0])["payload"] if lines else {}
+        fin = next((e["payload"] for e in (json.loads(b) for b in reversed(lines) if b"run.finished" in b) if e["type"] == "run.finished"), None)
+        hidden = [e["payload"]["cases"] for e in (json.loads(b) for b in lines if b"evaluation.locked" in b) if e["type"] == "evaluation.locked"]
         rows.append({"id": d.name, "mode": start.get("mode", "team"), "pieces": len(start.get("chunks", [])),
                      "kept": len((fin or {}).get("accepted", [])), "done": bool(fin),
                      "hidden": f"{sum(h.get('passed', 0) for h in hidden)}/{sum(h.get('expected', 0) for h in hidden)}" if hidden else "-",
-                     "age": time.time() - (d / "events.jsonl").stat().st_mtime})
+                     "age": time.time() - path.stat().st_mtime})
     return rows
 
 

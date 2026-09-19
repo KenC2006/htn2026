@@ -455,14 +455,21 @@ def watch(run_dir: Path, *, replay: bool = False, speed: float = 1.0, proc=None)
             show()
             time.sleep(1.0)
         else:
-            seen, last_read, idle_after_exit = 0, 0.0, 0
+            pos, last_read, idle_after_exit = 0, 0.0, 0
             while True:
                 if time.time() - last_read > 0.4:
                     last_read = time.time()
-                    events = _read(path)
-                    for e in events[seen:]:
-                        board.apply(e)
-                    seen = len(events)
+                    if path.exists():
+                        with path.open("rb") as f:
+                            f.seek(pos)
+                            buf = f.read()
+                        parts = buf.split(b"\n")
+                        pos += len(buf) - len(parts.pop())
+                        for raw in parts:
+                            try:
+                                board.apply(json.loads(raw))
+                            except json.JSONDecodeError:
+                                pass
                     if proc is not None and proc.poll() is not None:
                         idle_after_exit += 1
                 if board.t0 and not board.finished:

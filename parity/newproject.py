@@ -273,7 +273,7 @@ def _run_original(project: Path, cases: list[dict]) -> dict:
     tmp.mkdir(exist_ok=True)
     (tmp / "cases.jsonl").write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
     ran = subprocess.run([sys.executable, str(project / "runners" / "source.py"), "--cases", str(tmp / "cases.jsonl"), "--out", str(tmp / "obs.jsonl")],
-                         cwd=project, capture_output=True, text=True, timeout=300)
+                         cwd=project, capture_output=True, text=True, timeout=300 * max(1, len(cases) // (DEV_CASES + HIDDEN_CASES)))
     if ran.returncode != 0:
         print(f"  (the original could not be run: {ran.stderr.strip().splitlines()[-1][:200] if ran.stderr.strip() else 'no error text'})")
     obs = {}
@@ -346,7 +346,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
         "input types and ranges come from the C signatures" if from_c else "using default input ranges")
     hints = suggest(wanted) if use_ai else {}
 
-    kept, skipped = [], {}
+    kept, skipped, plan = [], {}, []
     for f in wanted:
         hint = hints.get(f.name) if isinstance(hints.get(f.name), dict) else {}
         rules = f.rules if from_c else rules_for(f, hint)
@@ -355,12 +355,20 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
             continue
         dev = make_cases(f.name, "?", rules, DEV_CASES, 1, hint.get("examples") or [], "case")
         hidden = make_cases(f.name, "?", rules, HIDDEN_CASES, 9001, [], "hidden")
-        first, again = _run_original(project, dev + hidden), _run_original(project, dev + hidden)
+        plan.append((f, rules, dev, hidden))
+
+    every = [c for _, _, dev, hidden in plan for c in dev + hidden]
+    runs = [_run_original(project, every), _run_original(project, every)] if plan else [{}, {}]
+    for f, rules, dev, hidden in plan:
+        want = [c["case_id"] for c in dev + hidden]
+        first, again = [{i: b[i] for i in want if i in b} for b in runs]
+        if any(len(b) != len(want) or any(o["status"] == "crash" for o in b.values()) for b in (first, again)):
+            first, again = _run_original(project, dev + hidden), _run_original(project, dev + hidden)
         strip = lambda o: (o.get("status"), json.dumps(o.get("value")), o.get("error_code"))  # noqa: E731
         ok = [o for o in first.values() if o["status"] == "ok"]
         crashes = [o for o in first.values() if o["status"] == "crash"]
         errors = sorted({o["error_code"] for o in first.values() if o["status"] == "error"})
-        if len(first) != len(dev + hidden) or crashes:
+        if len(first) != len(want) or crashes:
             skipped[f.name] = f"returns something I cannot carry across ({(crashes[0]['diagnostics'] if crashes else 'the original did not run')[:90]})"
         elif {k: strip(v) for k, v in first.items()} != {k: strip(v) for k, v in again.items()}:
             skipped[f.name] = "gave different answers for the same inputs when run twice"
@@ -460,14 +468,14 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
     (project / "profile.json").write_text(json.dumps({
         "schema_version": 1, "profile": name, "languages": {"source": lang, "target": "Rust"},
         "run_source": ["python", "runners/source.py"], "run_target": ["python", "runners/target.py"],
-        "build_target": ["rustc", "-O", "harness/main.rs", "-o", "parity_target.exe"], "verify_seconds": 180,
+        "build_target": ["rustc", "-C", "opt-level=0", "-C", "debug-assertions=off", "harness/main.rs", "-o", "parity_target.exe"], "verify_seconds": 180,
         "frozen": ["profile.json", "chunks/*", "contracts/*", "legacy/*", "legacy/*/*", "legacy/*/*/*", "view/*", "harness/*", "runners/*", "cases.jsonl", "locked/*"],
         "oracle_paths": ["legacy", "view", "cases.jsonl", "locked"],
         "forbid_patterns": [{"regex": "\\bunsafe\\b", "why": "no unsafe code"}, {"regex": "\\b(todo|unimplemented)!", "why": "stub macro"},
                             {"regex": "std::(fs|net|process|env)\\b", "why": "the new code may not touch files, the network, processes or the environment"}],
         "locked_cases": "locked/cases.jsonl", "skipped": skipped}, indent=2) + "\n", encoding="utf-8", newline="\n")
 
-    built = subprocess.run(["rustc", "-O", "harness/main.rs", "-o", "_check.exe"], cwd=project, capture_output=True, text=True)
+    built = subprocess.run(["rustc", "-C", "opt-level=0", "-C", "debug-assertions=off", "harness/main.rs", "-o", "_check.exe"], cwd=project, capture_output=True, text=True)
     for leftover in project.glob("_check.*"):
         leftover.unlink()
     if built.returncode != 0:

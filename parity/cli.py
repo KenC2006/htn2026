@@ -214,6 +214,8 @@ def run(ns: argparse.Namespace) -> int:
 
 def check(ns: argparse.Namespace) -> int:
     """Check a translation written by anyone (another model, a person) with the same checker, then the hidden test set."""
+    import asyncio
+
     from .engine import gate
     from .engine.contracts import ContractLedger
     from .engine.evaluate import locked_evaluate
@@ -236,7 +238,6 @@ def check(ns: argparse.Namespace) -> int:
                 payload={"chunks": list(chunks), "profile_dir": str(profile_dir), "mode": f"outside: {ns.author}", "reused": []})
     ctx = None
     if not ns.no_tester and os.environ.get("API_KEY"):
-        import asyncio
         import logging
         logging.disable(logging.WARNING)          # the agent framework logs every step to the console
         from .engine.tools import RunContext
@@ -245,41 +246,57 @@ def check(ns: argparse.Namespace) -> int:
         TEAM.reset(run_id)
         ctx.register_tester(model=os.environ.get("TESTER_MODEL") or os.environ.get("REVIEWER_MODEL"))
     blocked, todo = {}, list(chunks)
-    while todo:
-        ready = [c for c in todo if set(chunks[c].get("depends_on", [])) <= set(integ.accepted) | set(blocked)]
-        for cid in ready or todo:
-            todo.remove(cid)
-            missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
-            paths = chunks[cid]["write_allowlist"]
-            if missing or not all((cand_dir / p).exists() for p in paths):
-                blocked[cid] = "a function it calls was not kept" if missing else "no file handed in"
-                events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
-                continue
-            cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
-                    "contract_hashes": ledger.hashes(chunks[cid].get("contract_ids", []))}
-            for f in cand["files"]:
-                events.emit("worker.wrote", actor=ns.author, chunk_id=cid, payload=f)
-            overlay = integ.files_of(chunks[cid].get("depends_on", []))
-            v = gate.check(profile_dir, cid, cand, cases_path, run_dir, attempt_id=f"{cid}:{ns.author}-1",
-                           current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
-            if v.accepted and ctx is not None:     # the tester attacks what passed the fixed cases
-                ctx.under_test[cid], ctx.tester_calls[cid], ctx.found[cid] = (cand, overlay), 0, []
-                events.emit("tester.started", actor="scheduler", chunk_id=cid, payload={})
-                try:
-                    _, _, report = asyncio.run(TEAM.ask("tester", ctx.tester_query(cid, cand)))
-                except Exception as e:  # noqa: BLE001
-                    report = {"summary": f"tester failed: {e}"}
-                found = ctx.found.pop(cid, [])
-                events.emit("tester.finished", actor="tester", chunk_id=cid,
-                            payload={"found": len(found), "summary": ((report or {}).get("summary") or "")[:400]})
-                if found:
-                    v = gate.check(profile_dir, cid, cand, cases_path, run_dir, attempt_id=f"{cid}:{ns.author}-1-after-tester",
-                                   current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
-            if v.accepted:
-                v = integ.integrate(cid, cand)
-            if not v.accepted:
-                blocked[cid] = v.status
-                events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": f"{v.status}: {v.detail[:200]}"})
+    sem = asyncio.Semaphore(min(8, os.cpu_count() or 4))
+
+    async def one(cid: str):
+        missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
+        paths = chunks[cid]["write_allowlist"]
+        if missing or not all((cand_dir / p).exists() for p in paths):
+            blocked[cid] = "a function it calls was not kept" if missing else "no file handed in"
+            events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
+            return None
+        cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
+                "contract_hashes": ledger.hashes(chunks[cid].get("contract_ids", []))}
+        for f in cand["files"]:
+            events.emit("worker.wrote", actor=ns.author, chunk_id=cid, payload=f)
+        overlay = integ.files_of(chunks[cid].get("depends_on", []))
+        async with sem:
+            v = await asyncio.to_thread(gate.check, profile_dir, cid, cand, cases_path, run_dir, attempt_id=f"{cid}:{ns.author}-1",
+                                        current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
+        if v.accepted and ctx is not None:     # the tester attacks what passed the fixed cases
+            ctx.under_test[cid], ctx.tester_calls[cid], ctx.found[cid] = (cand, overlay), 0, []
+            events.emit("tester.started", actor="scheduler", chunk_id=cid, payload={})
+            try:
+                _, _, report = await TEAM.ask(f"tester-{cid}", ctx.tester_query(cid, cand))
+            except Exception as e:  # noqa: BLE001
+                report = {"summary": f"tester failed: {e}"}
+            found = ctx.found.pop(cid, [])
+            events.emit("tester.finished", actor="tester", chunk_id=cid,
+                        payload={"found": len(found), "summary": ((report or {}).get("summary") or "")[:400]})
+            if found:
+                async with sem:
+                    v = await asyncio.to_thread(gate.check, profile_dir, cid, cand, cases_path, run_dir,
+                                                attempt_id=f"{cid}:{ns.author}-1-after-tester",
+                                                current_contract_hashes=ledger.hashes(), events=events, overlay=overlay)
+        return cid, cand, v
+
+    async def schedule() -> None:
+        while todo:
+            ready = [c for c in todo if set(chunks[c].get("depends_on", [])) <= set(integ.accepted) | set(blocked)]
+            wave = list(ready or todo)                      # a snapshot: the loop below removes from todo
+            for cid in wave:
+                todo.remove(cid)
+            for got in await asyncio.gather(*[one(c) for c in wave]):
+                if got is None:
+                    continue
+                cid, cand, v = got
+                if v.accepted:                              # one at a time, in wave order: the integrator is the only writer
+                    v = await asyncio.to_thread(integ.integrate, cid, cand)
+                if not v.accepted:
+                    blocked[cid] = v.status
+                    events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": f"{v.status}: {v.detail[:200]}"})
+
+    asyncio.run(schedule())
     events.emit("run.finished", actor="scheduler", payload={"profile": profile["profile"], "accepted": list(integ.accepted), "blocked": blocked,
                                                              "stale": [], "exportable": not blocked, "decisions": [], "accepted_tree": integ.tree_hash()})
     if integ.accepted and profile.get("locked_cases"):

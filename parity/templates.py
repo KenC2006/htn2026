@@ -163,41 +163,59 @@ with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
         out.write(json.dumps(obs) + "\n")
 '''
 
-# runners/target.py: runs the NEW code, one process per case so a panic cannot take other cases with it.
+# runners/target.py: runs the NEW code, one process for the whole batch, restarted past any case that kills it.
 TARGET_RUNNER = r'''"""Frozen. Runs the rewritten code on the cases and records what it does."""
 import argparse, json, subprocess, time
 from pathlib import Path
 
 ap = argparse.ArgumentParser(); ap.add_argument("--cases"); ap.add_argument("--out"); ap.add_argument("--candidate"); ns = ap.parse_args()
 exe = str(Path(ns.candidate) / "parity_target.exe")
-with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
-    for line in open(ns.cases, encoding="utf-8"):
-        if not line.strip():
-            continue
-        c = json.loads(line); t = time.perf_counter()
-        obs = {"schema_version": 1, "case_id": c["case_id"], "value": None, "error_code": None, "diagnostics": ""}
+feed = Path(ns.candidate) / "_feed.jsonl"
+cases = [json.loads(x) for x in open(ns.cases, encoding="utf-8") if x.strip()]
+obs = {c["case_id"]: {"schema_version": 1, "case_id": c["case_id"], "status": "crash", "value": None, "error_code": None,
+                      "diagnostics": "the new code never answered", "duration_ms": 0.0} for c in cases}
+todo, alone = cases, False
+while todo:
+    batch = todo[:1] if alone else todo          # after a hang, back to one case per process so the budget is per case again
+    feed.write_text("".join(json.dumps({"id": c["case_id"], "export": c["export"], "input": c["input"]}) + "\n" for c in batch),
+                    encoding="utf-8", newline="\n")
+    t, hung, said, err = time.perf_counter(), False, "", ""
+    try:
+        with open(feed, "rb") as fh:             # a file, not input=: a pipe write is not covered by the timeout on Windows
+            p = subprocess.run([exe], stdin=fh, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=min(10 + 0.1 * len(batch), 60))
+        said, err = p.stdout, p.stderr
+    except subprocess.TimeoutExpired as e:
+        hung = alone = True
+        said, err = [x if isinstance(x, str) else (x or b"").decode("utf-8", "replace") for x in (e.stdout, e.stderr)]
+    except Exception as e:
+        err, alone = f"{type(e).__name__}: {e}", True
+    ms = (time.perf_counter() - t) * 1000 / len(batch)
+    answered, n = dict(x.split("\t", 1) for x in said.splitlines() if "\t" in x), 0
+    for c in batch:
+        if c["case_id"] not in answered:
+            break
+        o = obs[c["case_id"]]; o["duration_ms"] = ms; n += 1
         try:
-            p = subprocess.run([exe], input=json.dumps({"export": c["export"], "input": c["input"]}), capture_output=True,
-                               text=True, encoding="utf-8", timeout=10)
-            if p.returncode == 0:
-                reply = json.loads(p.stdout)
-                if "error" in reply:
-                    obs.update(status="error", error_code=reply["error"])
-                else:
-                    obs.update(status="ok", value=reply["ok"])
+            reply = json.loads(answered[c["case_id"]])
+            if "error" in reply:
+                o.update(status="error", error_code=reply["error"], diagnostics="")
             else:
-                obs.update(status="crash", diagnostics=p.stderr[-300:])
-        except subprocess.TimeoutExpired:
-            obs.update(status="timeout")
+                o.update(status="ok", value=reply["ok"], diagnostics="")
         except Exception as e:
-            obs.update(status="crash", diagnostics=f"{type(e).__name__}: {e}"[:300])
-        obs["duration_ms"] = (time.perf_counter() - t) * 1000
-        out.write(json.dumps(obs) + "\n")
+            o.update(status="crash", diagnostics=f"{type(e).__name__}: {e}"[:300])
+    if n < len(batch):                           # the first case with no reply is the one that killed the process
+        obs[batch[n]["case_id"]].update(status="timeout" if hung else "crash", diagnostics="" if hung else err[-300:], duration_ms=ms)
+        n += 1
+    todo = todo[n:]
+with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
+    for c in cases:
+        out.write(json.dumps(obs[c["case_id"]]) + "\n")
 '''
 
 # runners/source.py for a C original: compiles it with gcc next to a small generated driver, then feeds it the cases.
 C_SOURCE_RUNNER = r"""# Frozen. Compiles the original C and runs its functions on the cases, recording what they return.
-import argparse, json, subprocess, tempfile, time
+import argparse, hashlib, json, os, subprocess, tempfile, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -255,10 +273,9 @@ def encode(kind, v):
 
 ap = argparse.ArgumentParser(); ap.add_argument("--cases"); ap.add_argument("--out"); ns = ap.parse_args()
 cases = [json.loads(x) for x in open(ns.cases, encoding="utf-8") if x.strip()]
-work = Path(tempfile.mkdtemp(prefix="parity_c_"))
 t = time.perf_counter()
 got, failed = {}, {}
-for n, file in enumerate(sorted({f["file"] for f in SPEC["functions"].values()})):      # one program per C file, so files cannot clash
+for file in sorted({f["file"] for f in SPEC["functions"].values()}):      # one program per C file, so files cannot clash
     lines = ""
     for c in cases:
         f = SPEC["functions"].get(c["export"])
@@ -266,14 +283,38 @@ for n, file in enumerate(sorted({f["file"] for f in SPEC["functions"].values()})
             lines += "\t".join([c["case_id"], c["export"]] + [encode(kind, c["input"][name]) for kind, name, _ in f["args"]]) + "\n"
     if not lines:
         continue
-    (work / f"driver{n}.c").write_text(driver(file), encoding="utf-8")
-    built = subprocess.run(["gcc", "-std=gnu99", "-O1", "-w", "-I", str((ROOT / file).parent), "-o", str(work / f"oracle{n}.exe"), str(work / f"driver{n}.c")],
-                           capture_output=True, text=True)
-    if built.returncode != 0:
-        failed[file] = built.stderr[-250:]
-        continue
-    ran = subprocess.run([str(work / f"oracle{n}.exe")], input=lines, capture_output=True, text=True, timeout=120)
-    got.update(dict(x.split("\t", 1) for x in ran.stdout.splitlines() if "\t" in x))
+    prog, src = driver(file), (ROOT / file).parent
+    key = hashlib.sha256(prog.encode() + b"".join(p.read_bytes() for p in sorted(src.glob("*.[ch]")))).hexdigest()[:16]
+    work = Path(tempfile.gettempdir()) / f"parity_c_{key}"      # the driver is a pure function of the source: build it once, reuse it
+    work.mkdir(exist_ok=True)
+    exe = work / "oracle.exe"
+    if not exe.exists():
+        drv, staged = work / f"driver.{os.getpid()}.c", f"{exe}.{os.getpid()}"
+        drv.write_text(prog, encoding="utf-8")
+        built = subprocess.run(["gcc", "-std=gnu99", "-O1", "-w", "-I", str(src), "-o", staged, str(drv)], capture_output=True, text=True)
+        drv.unlink(missing_ok=True)
+        if built.returncode != 0:                               # never cached: a broken gcc must not poison the oracle for good
+            failed[file] = built.stderr[-250:]
+            continue
+        try:
+            os.replace(staged, exe)
+        except OSError:                                         # another check installed the same bytes first
+            Path(staged).unlink(missing_ok=True)
+            if not exe.exists():
+                failed[file] = "the compiled original could not be installed"
+                continue
+    pending, deadline = lines.splitlines(), time.perf_counter() + 120
+    while pending:                                              # an input that aborts the original must not take the queue behind it
+        left = deadline - time.perf_counter()
+        if left <= 0:
+            break
+        try:
+            said = subprocess.run([str(exe)], input="\n".join(pending) + "\n", capture_output=True, text=True, timeout=left).stdout
+        except subprocess.TimeoutExpired as e:
+            said = e.stdout if isinstance(e.stdout, str) else (e.stdout or b"").decode("utf-8", "replace")
+        answered = dict(x.split("\t", 1) for x in said.splitlines() if "\t" in x)
+        got.update(answered)
+        pending = [p for p in pending if p.split("\t", 1)[0] not in answered][1:]
 ms = (time.perf_counter() - t) * 1000 / max(len(cases), 1)
 with open(ns.out, "w", encoding="utf-8", newline="\n") as out:
     for c in cases:
@@ -298,14 +339,17 @@ use std::io::Read;
 
 MAIN_RS_TAIL = '''
 fn main() {
-    let mut text = String::new();
-    std::io::stdin().read_to_string(&mut text).expect("stdin");
-    let request = json::parse(&text);
-    let export = String::from_j(request.get("export"));
-    let input = request.get("input");
-    let reply: String = match export.as_str() {
+    for line in std::io::stdin().lines() {
+        let line = line.expect("stdin");
+        if line.trim().is_empty() { continue; }
+        let request = json::parse(&line);
+        let id = String::from_j(request.get("id"));
+        let export = String::from_j(request.get("export"));
+        let input = request.get("input");
+        let reply: String = match export.as_str() {
 %ARMS%        other => panic!("unknown export {}", other),
-    };
-    println!("{}", reply);
+        };
+        println!("{}\\t{}", id, reply);
+    }
 }
 '''

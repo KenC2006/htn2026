@@ -111,9 +111,15 @@ class RunContext:
     tester_calls: dict = field(default_factory=dict)
     found: dict = field(default_factory=dict)        # chunk -> cases the tester found in the current hunt
     _cases_lock: threading.Lock = field(default_factory=threading.Lock)
+    _seq_lock: threading.Lock = field(default_factory=threading.Lock)
     _found: int = 0
     probe_calls: int = 0                             # probes used by the expert in its current request
     _n: int = 0
+
+    def seq(self) -> int:
+        with self._seq_lock:
+            self._n += 1
+            return self._n
 
     def source_text(self, cid: str) -> str:
         return "\n\n".join(f"# {p}\n{(self.profile_dir / p).read_text(encoding='utf-8')}" for p in self.chunks[cid]["source_files"])
@@ -140,12 +146,13 @@ class RunContext:
         if question:
             parts.append(f"Worker's question: {question}")
         if counterexample:
+            ce = {**counterexample, "input": json.dumps(counterexample.get("input"))[:800]}
             parts.append("The verifier rejected a candidate. Counterexample (source output is the truth): "
-                         f"{json.dumps(counterexample)}\nRejected candidate: {json.dumps(candidate_files)}\n"
+                         f"{json.dumps(ce)}\nRejected candidate: {json.dumps(candidate_files)[:4000]}\n"
                          "Decide whether this shows a general source-vs-target difference other workers could also hit.")
         if build_error:
             parts.append("A candidate that FOLLOWED your guidance did not compile. The real compiler said:\n"
-                         f"{build_error[-900:]}\nCandidate: {json.dumps(candidate_files)}\n"
+                         f"{build_error[-900:]}\nCandidate: {json.dumps(candidate_files)[:4000]}\n"
                          "If your guidance named a construct that does not exist in the target language or was otherwise "
                          "wrong, issue a corrected implementation_clarification that replaces it and say which decision it "
                          "corrects. If the worker simply made its own mistake, use no_decision.")
@@ -179,10 +186,10 @@ class RunContext:
         ctx = self
 
         async def check_compile(path: str, content: str) -> str:
-            ctx._n += 1
+            n_seq = ctx.seq()
             v = await asyncio.to_thread(
                 gate.check, ctx.profile_dir, cid, {"files": [{"path": path, "content": content}]}, ctx.cases_path,
-                ctx.run_dir, attempt_id=f"{cid}:compile-{ctx._n}", overlay=ctx.integ.files_of(ctx.chunks[cid].get("depends_on", [])),
+                ctx.run_dir, attempt_id=f"{cid}:compile-{n_seq}", overlay=ctx.integ.files_of(ctx.chunks[cid].get("depends_on", [])),
                 stop_after_build=True)
             ctx.events.emit("tool.check_compile", actor=member, chunk_id=cid,
                             payload={"result": v.status, "path": path, "content": content[:20000],
@@ -248,8 +255,8 @@ class RunContext:
 
             result = await asyncio.to_thread(run)
             ctx.events.emit("tool.probe_source", actor=actor, payload={"export": export, "input": inputs, "result": result[:4000]})
-            if len(result) > 6000:                                       # one huge output once made a single prompt millions of tokens long
-                return result[:6000] + " … (cut: outputs this large cannot be shown; probe smaller inputs)"
+            if len(result) > 4000:                                       # one huge output once made a single prompt millions of tokens long
+                return result[:4000] + " … (cut: outputs this large cannot be shown; probe smaller inputs)"
             return result
 
         async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: str, answer: str) -> str:
@@ -322,11 +329,11 @@ class RunContext:
                 with tempfile.TemporaryDirectory(prefix="parity-try-") as d:
                     cpath = Path(d) / "cases.jsonl"
                     cpath.write_text("".join(json.dumps(c) + "\n" for c in cases), encoding="utf-8")
-                    ctx._n += 1
-                    v = gate.check(ctx.profile_dir, chunk_id, candidate, cpath, ctx.run_dir, attempt_id=f"{chunk_id}:tester-{ctx._n}", overlay=overlay)
+                    n_seq = ctx.seq()
+                    v = gate.check(ctx.profile_dir, chunk_id, candidate, cpath, ctx.run_dir, attempt_id=f"{chunk_id}:tester-{n_seq}", overlay=overlay)
                     if v.status not in ("ACCEPTED", "REJECTED_BEHAVIOR"):
                         return f"Could not compare ({v.status}: {v.detail[:300]}). Inputs the original itself rejects do not count; try others.", []
-                    obs = ctx.run_dir / "observations" / f"{chunk_id}-tester-{ctx._n}"
+                    obs = ctx.run_dir / "observations" / f"{chunk_id}-tester-{n_seq}"
                     read = lambda p: {o["case_id"]: o for o in map(json.loads, (obs / p).read_text(encoding="utf-8").splitlines())}  # noqa: E731
                     src, tgt = read("source_obs.jsonl"), read("target_obs.jsonl")
                     show = lambda o: o.get("value") if o.get("status") == "ok" else o.get("error_code") or o.get("status")  # noqa: E731
@@ -349,14 +356,17 @@ class RunContext:
                         + json.dumps(differing)[:3000])
             return f"All {len(rows)} inputs match ({3 - n} tries left)."
 
-        async def submit_report(chunk_id: str, summary: str) -> str:
-            TEAM.outbox["tester"] = {"chunk_id": chunk_id, "summary": summary}
-            return "Report received. Stop now."
+        def reporter(member: str):
+            async def submit_report(chunk_id: str, summary: str) -> str:
+                TEAM.outbox[member] = {"chunk_id": chunk_id, "summary": summary}
+                return "Report received. Stop now."
+            return submit_report
 
-        TEAM.register(MemberSpec("tester", "tester", TESTER_PROMPT, model=model, max_iterations=10, serial=True, fresh_each_turn=True, tools=[
-            ToolSpec("try_inputs", "Run up to 12 inputs through BOTH the original and the new code. inputs_json is a JSON ARRAY of input objects. Returns both outputs for each and which differ. At most 3 calls per chunk.", try_inputs),
-            ToolSpec("submit_report", "Finish: say in one or two sentences what you attacked and what you found. The only way to finish.", submit_report)],
-            submit_tools={"submit_report"}))
+        for member in ["tester", *(f"tester-{c}" for c in self.chunks)]:
+            TEAM.register(MemberSpec(member, "tester", TESTER_PROMPT, model=model, max_iterations=10, fresh_each_turn=True, tools=[
+                ToolSpec("try_inputs", "Run up to 12 inputs through BOTH the original and the new code. inputs_json is a JSON ARRAY of input objects. Returns both outputs for each and which differ. At most 3 calls per chunk.", try_inputs),
+                ToolSpec("submit_report", "Finish: say in one or two sentences what you attacked and what you found. The only way to finish.", reporter(member))],
+                submit_tools={"submit_report"}))
 
     # ── planner ────────────────────────────────────────────────────────────
     def register_planner(self) -> None:
@@ -419,9 +429,10 @@ class RunContext:
 
     def register_team(self, steward_model: str | None) -> None:
         # The expert again, without tools: it reads a compiler error and tells the worker how to fix it. It writes no code files.
-        TEAM.register(MemberSpec("expert-hint", "steward", HINT_PROMPT, model=steward_model, max_iterations=2, serial=True, fresh_each_turn=True))
+        for member in ["expert-hint", *(f"expert-hint-{c}" for c in self.chunks)]:
+            TEAM.register(MemberSpec(member, "steward", HINT_PROMPT, model=steward_model, max_iterations=2, fresh_each_turn=True))
         TEAM.register(MemberSpec("steward", "steward", STEWARD_PROMPT, model=steward_model, tools=self.steward_tools(),
-                                 max_iterations=10, serial=True, fresh_each_turn=True, submit_tools={"submit_ruling"}))
+                                 max_iterations=8, serial=True, fresh_each_turn=True, submit_tools={"submit_ruling"}))
         for cid in self.chunks:
             member = f"worker-{cid}"
             TEAM.register(MemberSpec(member, "worker", WORKER_PROMPT, tools=self.worker_tools(member, cid), max_iterations=10,
