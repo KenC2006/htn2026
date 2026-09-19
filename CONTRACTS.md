@@ -34,7 +34,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 
 **Working example to copy: `tests/flow_fixture/`** (three chunks, one dependency, real `rustc`). Try it:
 
-    . env/activate-swarm.sh
+    . env/activate-swarm.sh            # PowerShell:  . .envctivate-swarm.ps1
     python -m unittest tests.test_gate tests.test_flow
     python -m ratchet doctor                                   # toolchains, key, budget
     python -m ratchet scan tests/flow_fixture                  # validates YOUR profile folder too, costs nothing
