@@ -47,6 +47,22 @@ STEWARD_PROMPT = (
     "(6) Finish every request by calling submit_ruling exactly once; that is the only way to answer."
 )
 
+PLANNER_PROMPT = (
+    "You are the planner of a code-migration team. You are given the chunks of a migration (ids and exported names only). "
+    "Read the sources with read_source, then hand in a plan with submit_plan. The plan is a JSON object:\n"
+    '{"chunks": [{"chunk_id": "...", "depends_on": ["chunk ids whose code this chunk CALLS"], "why": "one sentence"}], '
+    '"risks": [{"contract_hint": "short name", "chunk_ids": ["..."], "question": "one precise question about a '
+    'source-language behavior that may not carry over to the target language"}]}\n'
+    "Rules: a chunk depends on another only if it calls its code; chunks with no dependency between them will be migrated "
+    "in parallel, so do not invent dependencies. List at most 2 risks, and only for constructs that literally appear in the "
+    "sources you read and whose behavior differs between the two languages, so that a literal translation would be silently "
+    "wrong. Go through the operators and library calls in the sources one by one: if any of them gives a different result in the "
+    "target language for some input (for example negative numbers, very large numbers, empty input), you MUST list it, "
+    "because every worker would otherwise get it wrong separately. One risk per distinct behavior, and nothing about "
+    "constructs that are not in the sources. The steward settles each risk BEFORE any worker starts. A deterministic check validates "
+    "your plan; if it is rejected, fix it and submit again."
+)
+
 SOLO_PROMPT = (
     "You are a single migration agent. You port code chunk by chunk to the target language, preserving behavior exactly. "
     "You cannot run tests; an independent verifier will. Tools:\n"
@@ -213,6 +229,61 @@ class RunContext:
 
         return [ToolSpec("probe_source", "Run the frozen ORIGINAL implementation of one export on up to 8 inputs you choose. inputs_json is a JSON ARRAY of inputs. Returns the real status/value/error_code for each.", probe_source),
                 ToolSpec("submit_ruling", "Answer the request; the only way to answer. kind is implementation_clarification | behavior_change | no_decision. evidence_refs is a comma-separated list: the source file path plus the probes or case id you relied on.", submit_ruling)]
+
+    # ── planner ────────────────────────────────────────────────────────────
+    def register_planner(self) -> None:
+        ctx = self
+
+        async def read_source(chunk_id: str) -> str:
+            if chunk_id not in ctx.chunks:
+                return f"unknown chunk_id; use one of {sorted(ctx.chunks)}"
+            ctx.events.emit("tool.read_source", actor="planner", chunk_id=chunk_id)
+            return ctx.source_text(chunk_id)
+
+        async def submit_plan(plan_json: str) -> str:
+            try:
+                plan = json.loads(plan_json)
+            except json.JSONDecodeError as e:
+                return f"plan_json is not valid JSON: {e}"
+            problems = ctx.check_plan(plan)
+            if problems:
+                ctx.events.emit("plan.rejected", actor="plan-check", payload={"problems": problems})
+                return "PLAN REJECTED by the deterministic plan check. Fix and submit again:\n- " + "\n- ".join(problems)
+            TEAM.outbox["planner"] = plan
+            return "Plan accepted. Stop now."
+
+        TEAM.register(MemberSpec("planner", "planner", PLANNER_PROMPT, max_iterations=12, tools=[
+            ToolSpec("read_source", "Read the source code of one chunk.", read_source),
+            ToolSpec("submit_plan", "Hand in the plan as a JSON string. It is validated; a rejected plan comes back with reasons.", submit_plan)],
+            submit_tools={"submit_plan"}))
+
+    def check_plan(self, plan: dict) -> list[str]:
+        """Deterministic check of the planner's proposal. The route owner's manifests are the ground truth for
+        real dependencies: the plan may add ordering constraints (costs parallelism) but may not drop one."""
+        problems = []
+        entries = {c.get("chunk_id"): c for c in plan.get("chunks", []) if isinstance(c, dict)}
+        for cid in self.chunks:
+            if cid not in entries:
+                problems.append(f"chunk {cid} is missing from the plan")
+        for cid, entry in entries.items():
+            if cid not in self.chunks:
+                problems.append(f"{cid} is not a chunk of this profile")
+                continue
+            deps = set(entry.get("depends_on") or [])
+            if deps - set(self.chunks):
+                problems.append(f"{cid} depends on unknown chunk(s) {sorted(deps - set(self.chunks))}")
+            missing = set(self.chunks[cid].get("depends_on", [])) - deps
+            if missing:
+                problems.append(f"{cid} calls code from {sorted(missing)} but the plan does not make it wait for them")
+        if not problems:
+            done: set = set()
+            while len(done) < len(entries):
+                ready = [c for c, e in entries.items() if c not in done and set(e.get("depends_on") or []) <= done]
+                if not ready:
+                    problems.append(f"dependency cycle among {sorted(set(entries) - done)}")
+                    break
+                done |= set(ready)
+        return problems
 
     def register_solo(self) -> None:
         """Single-agent baseline: ONE member does every chunk and is its own steward.

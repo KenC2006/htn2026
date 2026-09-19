@@ -29,6 +29,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 - `frozen`: globs of files no worker may ever change. The gate hashes them before the run and rejects any drift.
 - `oracle_paths`: removed from the workspace the candidate is built and run in, so the target cannot call the original.
 - `forbid_patterns`: regexes checked against worker files only.
+- `languages` (optional): `{"source": "Python", "target": "Rust"}`. Shown to the planner, which reads the sources, proposes the dependency order and raises up to two language-semantics risks that the steward rules on before any worker starts. Each one is a `planner.question` event.
 - Commands run with the profile folder (source) or the candidate workspace (build, target) as the working directory. No API keys are in their environment.
 
 **Working example to copy: `tests/flow_fixture/`** (three chunks, one dependency, real `rustc`). Try it:
@@ -108,7 +109,8 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
  "actor": "verifier", "payload": {"reason": "REJECTED_BEHAVIOR", "case_id": "negative-boundary-01"}}
 ```
 
-Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
+Event `type` values: `run.started`, `tool.read_source` (the planner read a chunk's source), `plan.accepted` (payload: `levels`, `chunks`, `risks`),
+`plan.rejected`, `planner.question` (a risk sent to the steward before workers start), `plan.fallback` (plan unusable, manifest dependencies used instead), `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
 `tool.probe_source` (the steward ran the original), `tool.check_compile`, `steward.consulted` (scheduler sent a counterexample),
 `steward.answered`, `decision.recorded`, `decision.rejected`, `run.resumed`, `chunk.resumed` (reused from a still-valid receipt), `evaluation.locked`, `chunk.revalidated` (accepted code re-checked after a contract change),
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,

@@ -44,5 +44,9 @@
       "why": "stub macro"
     }
   ],
-  "locked_cases": "locked/cases.jsonl"
+  "locked_cases": "locked/cases.jsonl",
+  "languages": {
+    "source": "Python",
+    "target": "Rust"
+  }
 }

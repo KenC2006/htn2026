@@ -29,7 +29,7 @@ from ratchet.framework.team import TEAM
 META = {
     "name": "ratchet-migrate",
     "description": "Gated multi-agent migration of one profile: parallel workers, contract steward, serial integrator.",
-    "phases": [{"title": "Migrate"}, {"title": "Integrate"}],
+    "phases": [{"title": "Plan"}, {"title": "Migrate"}, {"title": "Integrate"}],
 }
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,6 +45,17 @@ CANDIDATE_SCHEMA = {
         "notes": {"type": "string"},
     },
     "required": ["files", "question", "notes"],
+}
+
+PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "chunks": {"type": "array", "items": {"type": "object", "properties": {
+            "chunk_id": {"type": "string"}, "depends_on": {"type": "array", "items": {"type": "string"}}, "why": {"type": "string"}},
+            "required": ["chunk_id", "depends_on"]}},
+        "risks": {"type": "array", "items": {"type": "object"}},
+    },
+    "required": ["chunks"],
 }
 
 
@@ -84,6 +95,37 @@ async def run(args):
     blocked = ctx.blocked
     TEAM.reset(run_dir.name)
     ctx.register_team(steward_model=args.get("steward_model") or os.environ.get("REVIEWER_MODEL"))
+
+    # ── Plan: an agent proposes the dependency order and the semantic risks; plain code checks the plan; the
+    # steward settles the risks BEFORE any worker starts, so workers begin with guidance instead of going stale later.
+    if args.get("plan", True) and not resuming:
+        phase("Plan")
+        ctx.register_planner()
+        lang = profile.get("languages", {})
+        listing = "\n".join(f"- {cid}: exports {m['exports']}" for cid, m in chunks.items())
+        plan = await agent(f"Migration from {lang.get('source', 'the source language')} to {lang.get('target', 'the target language')}.\n"
+                           f"Chunks:\n{listing}\nRead the sources, then submit the plan.",
+                           schema=PLAN_SCHEMA, label="planner", options={"member": "planner"})
+        if plan and not ctx.check_plan(plan):
+            deps = {c["chunk_id"]: c.get("depends_on") or [] for c in plan["chunks"]}
+            levels = _levels({cid: {"depends_on": deps[cid]} for cid in chunks})
+            risks = [r for r in plan.get("risks", []) if isinstance(r, dict) and r.get("question")][:2]
+            events.emit("plan.accepted", actor="plan-check", payload={"levels": levels, "chunks": plan["chunks"], "risks": risks})
+            for i, risk in enumerate(risks):
+                cids = [c for c in risk.get("chunk_ids", []) if c in chunks and chunks[c].get("contract_ids")]
+                if not cids:
+                    continue
+                events.emit("planner.question", actor="planner", chunk_id=cids[0],
+                            payload={"question": risk["question"], "to": "steward", "before_workers": True})
+                proposal = await agent(ctx.steward_query(cids[0], asked_by="the planner (before any worker starts)",
+                                                         question=risk["question"]),
+                                       schema=DECISION_SCHEMA, label=f"steward-planner-risk-{i}", options={"member": "steward"})
+                decision = ctx.apply_proposal(cids[0], proposal, asked_by="planner")
+                events.emit("steward.answered", actor="contract-steward", chunk_id=cids[0],
+                            payload={"to": "planner", "decision_id": (decision or {}).get("decision_id"),
+                                     "answer": ((proposal or {}).get("answer") or "")[:400]})
+        else:
+            events.emit("plan.fallback", actor="plan-check", payload={"detail": "no valid plan; using the manifests' dependency order"})
 
     def task_prompt(cid: str) -> str:
         m = chunks[cid]

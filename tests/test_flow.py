@@ -131,6 +131,35 @@ class FlowTest(unittest.TestCase):
         self.assertIn("needs a human", ctx.blocked["S1"])
         self.assertEqual(self.ledger.contracts["time-arithmetic"]["version"], 1)
 
+    # ── planner ──
+    def test_plan_check_accepts_a_sound_plan_and_rejects_dropped_dependencies_and_cycles(self):
+        ctx = self.ctx()
+        good = {"chunks": [{"chunk_id": "S1", "depends_on": []}, {"chunk_id": "S2", "depends_on": []},
+                           {"chunk_id": "S3", "depends_on": ["S1", "S2"]}]}
+        self.assertEqual(ctx.check_plan(good), [])
+        extra = {"chunks": [{"chunk_id": "S1", "depends_on": []}, {"chunk_id": "S2", "depends_on": ["S1"]},
+                            {"chunk_id": "S3", "depends_on": ["S1", "S2"]}]}
+        self.assertEqual(ctx.check_plan(extra), [])  # over-cautious ordering is allowed; it only costs parallelism
+        dropped = {"chunks": [{"chunk_id": "S1", "depends_on": []}, {"chunk_id": "S2", "depends_on": []},
+                              {"chunk_id": "S3", "depends_on": ["S1"]}]}
+        self.assertIn("does not make it wait", " ".join(ctx.check_plan(dropped)))
+        self.assertIn("missing from the plan", " ".join(ctx.check_plan({"chunks": good["chunks"][:2]})))
+        cyc = {"chunks": [{"chunk_id": "S1", "depends_on": ["S3"]}, {"chunk_id": "S2", "depends_on": []},
+                          {"chunk_id": "S3", "depends_on": ["S1", "S2"]}]}
+        self.assertIn("cycle", " ".join(ctx.check_plan(cyc)))
+
+    def test_planner_submit_tool_returns_the_rejection_reasons_to_the_agent(self):
+        TEAM.reset("t")
+        ctx = self.ctx()
+        ctx.register_planner()
+        submit = self.tool(TEAM.specs["planner"].tools, "submit_plan")
+        reply = asyncio.run(submit(json.dumps({"chunks": [{"chunk_id": "S3", "depends_on": []}]})))
+        self.assertIn("PLAN REJECTED", reply)
+        self.assertNotIn("planner", TEAM.outbox)
+        ok = {"chunks": [{"chunk_id": c, "depends_on": self.chunks[c]["depends_on"]} for c in self.chunks], "risks": []}
+        self.assertIn("accepted", asyncio.run(submit(json.dumps(ok))))
+        self.assertEqual(TEAM.outbox["planner"], ok)
+
     # ── resume ──
     def test_resume_reuses_accepted_chunks_only_while_their_evidence_still_holds(self):
         fixture_hash = json.loads((self.profile / gate.LOCK_NAME).read_text())["fixture_hash"]

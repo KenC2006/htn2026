@@ -17,6 +17,7 @@ We do **not** use WorkSwarm's stock `TeamWorkerBackend`. Its workers inherit gen
 
 | Member | Model | Tools | Cannot |
 |---|---|---|---|
+| `planner` (one, runs first) | `MODEL_NAME` | `read_source`, `submit_plan` (a deterministic check rejects plans that drop a chunk, drop a declared dependency or contain a cycle, and returns the reasons to the agent) | write code, rule on behavior, override manifest dependencies |
 | `worker-<chunk>` (one per chunk, parallel) | `MODEL_NAME` (Qwen3 Coder) | `ask_steward`, `check_compile`, `submit_candidate` | run tests, see cases or expected outputs, read or write files, touch other chunks |
 | `steward` (one, serial, remembers every ruling) | `REVIEWER_MODEL` (Kimi, a different model family on purpose) | `probe_source` (runs the frozen ORIGINAL on inputs it chooses), `submit_ruling` | change expected behavior, issue a pass, see candidates' test results beyond the one counterexample it is sent |
 
@@ -24,9 +25,10 @@ Not agents, on purpose (deterministic code in `ratchet/engine/`): scheduler, con
 
 ## How they actually collaborate (all observable in `runs/<id>/events.jsonl`)
 
+0. **Planning that adapts the run.** The planner reads the sources, sets the parallel levels, and names up to two language-semantics risks. The steward investigates and rules on those *before any worker starts* (`plan.accepted`, then `decision.recorded`), so workers begin with the guidance instead of finding it halfway through and having their work thrown out as stale. If the plan is unusable the run falls back to the manifest order (`plan.fallback`).
 1. **Agent-initiated communication.** A worker that meets a source-vs-target semantic gap calls `ask_steward` *before writing code* (`worker.question`).
 2. **Investigation with tools.** The steward probes the original implementation on edge cases (`tool.probe_source`), then rules (`decision.recorded`). The contract service accepts only `implementation_clarification`; a `behavior_change` blocks the chunk for a human.
-3. **One agent's finding changes other agents' work.** A ruling bumps the contract version. Every chunk using that contract, and everything depending on them, is affected: in-flight candidates written under the old version are rejected as `STALE` and sent back; accepted receipts are invalidated until revalidated. Later workers receive the guidance up front.
+3. **One agent's finding changes other agents' work.** A ruling bumps the contract version. Every chunk using that contract, and everything depending on them, is affected: candidates still being written under the old version are rejected as `STALE` and sent back; accepted receipts are invalidated until revalidated. Later workers receive the guidance up front.
 4. **Verification nobody can talk their way past.** The gate builds with the real compiler and compares old vs new outputs case by case. On a behavioral rejection the scheduler sends the counterexample to the steward, which can turn it into guidance for everyone.
 5. **Memory.** Each member keeps its conversation for the whole run: a worker's second attempt remembers its first; the steward answers repeat questions from its earlier rulings (`no_decision`).
 
