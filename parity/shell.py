@@ -80,15 +80,59 @@ def _run_rows(limit: int = 10) -> list[dict]:
 
 
 # ── drawing ─────────────────────────────────────────────────────────────────
-def banner(state: dict) -> None:
+LOGO = """\
+██████╗   █████╗  ██████╗  ██╗ ████████╗ ██╗   ██╗
+██╔══██╗ ██╔══██╗ ██╔══██╗ ██║ ╚══██╔══╝ ╚██╗ ██╔╝
+██████╔╝ ███████║ ██████╔╝ ██║    ██║     ╚████╔╝
+██╔═══╝  ██╔══██║ ██╔══██╗ ██║    ██║      ╚██╔╝
+██║      ██║  ██║ ██║  ██║ ██║    ██║       ██║
+╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝    ╚═╝       ╚═╝""".splitlines()
+
+
+def _shade(t: float) -> str:
+    """Green to blue, left to right."""
+    a, b = (0x00, 0xFF, 0x9C), (0x3D, 0x8B, 0xFF)
+    return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(a, b))
+
+
+def _logo(lit: float = 1.0) -> Text:
+    """The wordmark with a left-to-right gradient; `lit` < 1 draws only the left part bright (used for the start-up sweep)."""
+    width = max(map(len, LOGO))
+    out = Text()
+    for line in LOGO:
+        out.append("  ")
+        for i, ch in enumerate(line):
+            t = i / width
+            out.append(ch, style=f"bold {_shade(t)}" if t <= lit else "grey23")
+        out.append("\n")
+    return out
+
+
+def banner(state: dict, animate: bool = False) -> None:
     short = lambda m: (m or "not set").split("/")[-1]  # noqa: E731
     console.print()
-    console.print(Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), ("   proves rewritten code still works the same", "dim")))
+    if animate and console.is_terminal:
+        from rich.live import Live
+        with Live(_logo(0.0), console=console, refresh_per_second=30, transient=False) as live:
+            for step in range(1, 17):
+                live.update(_logo(step / 16))
+                time.sleep(0.025)
+    else:
+        console.print(_logo(), end="")
+    console.print(Text.assemble(("  old code ", "dim"), ("≡", "bold #00e0c4"), (" new code", "dim"),
+                                ("    AI rewrites it. Parity proves it still works the same.", "italic dim")))
     console.print()
-    console.print(f"  {_project_line(Path(state['project']))}", style="dim", highlight=False)
-    console.print(f"  {short(os.environ.get('MODEL_NAME'))} + {short(os.environ.get('REVIEWER_MODEL'))}  ·  {_budget()}", style="dim", highlight=False)
+    rows = [("project", _project_line(Path(state["project"]))),
+            ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
+            ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}"),
+            ("budget", _budget())]
+    for label, value in rows:
+        console.print(Text.assemble((f"  {label:<9}", "#00e0c4"), (value, "default")), highlight=False)
     console.print()
-    console.print("  /run   /check   /runs   /help", style="dim", highlight=False)
+    hint = Text("  ")
+    for name, what in (("/run", "migrate"), ("/check", "test someone else's translation"), ("/runs", "history"), ("/help", "more")):
+        hint.append(name, style="bold").append(f" {what}     ", style="dim")
+    console.print(hint)
     console.print()
 
 
@@ -198,10 +242,10 @@ def shell() -> int:
     if not (Path(state["project"]) / "profile.json").exists():
         state["project"] = str(ROOT / "tests" / "flow_fixture")
     console.clear()
-    banner(state)
+    banner(state, animate=True)
     while True:
         try:
-            line = console.input("[bold]›[/bold] ").strip()
+            line = console.input("[bold #00e0c4]parity ›[/bold #00e0c4] ").strip()
         except (EOFError, KeyboardInterrupt):
             console.print()
             break
