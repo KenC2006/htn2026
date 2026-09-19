@@ -83,6 +83,16 @@ def choose_mode(state: dict, word: str = "") -> None:
             return
         state["mode"] = keys[i]
     console.print(Text.assemble(("  mode  ", ACCENT), (MODES[state["mode"]][0], "default")))
+    # the current project follows the mode: the newest one made here in that language, if there is one
+    want = MODES[state["mode"]][0].split()[0]
+    made = [f.parent for f in sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime)
+            if _project_line(f.parent).startswith(want + " ")] if PROJECTS.exists() else []
+    if made and not _project_line(Path(state["project"])).startswith(want + " "):
+        state["project"] = str(made[0])
+    if _project_line(Path(state["project"])).startswith(want + " "):
+        console.print(Text.assemble(("  project  ", ACCENT), (_project_line(Path(state["project"])), "default")))
+    else:
+        console.print(f"  [dim]no {want} project here yet: /check or /migrate a {MODES[state['mode']][2][0]} file[/dim]")
 
 
 def _fits_mode(state: dict, what: str) -> bool:
@@ -334,6 +344,11 @@ def handle(line: str, state: dict) -> bool:
         author = args[1] if len(args) > 1 else "outside"
         if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
             console.print("[red]which folder holds the translation?[/red]  example: /verify fable-rust fable")
+        elif not any((Path(folder) / w).exists() or (ROOT / folder / w).exists()
+                     for c in cli._load_profile(Path(project))[1].values() for w in c["write_allowlist"]):
+            names = [w for c in cli._load_profile(Path(project))[1].values() for w in c["write_allowlist"]]
+            console.print(f"  no Rust translation of [bold]{Path(project).name}[/bold] in {folder}.  /verify wants a folder holding {names[0]} and the rest.")
+            console.print("  [dim]To migrate source code use /migrate. To see a finished run use /status.[/dim]")
         else:
             state["last_run"] = _new_id(author)
             _save(state)
