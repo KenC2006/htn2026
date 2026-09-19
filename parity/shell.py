@@ -42,6 +42,7 @@ COMMANDS = [
     ("/export [run]", "put the proven Rust in this folder, with a report"),
     ("/use <project>", "go back to a project made earlier (then /migrate with no file runs it again)"),
     ("/models", "change which AI models the agents use"),
+    ("/doctor", "check the setup: Python, rustc, the key"),
     ("/quit", "leave"),
 ]
 
@@ -82,73 +83,13 @@ def _run_rows(limit: int = 10) -> list[dict]:
     return rows
 
 
-# ── migration modes ─────────────────────────────────────────────────────────
-# (source, target, words that select it, tools the pair needs on this machine)
-MODES = [("Python", "Rust", ("python", "py", "pyrust"), ("rustc",)),
-         ("C", "Rust", ("c", "crust"), ("rustc", "clang")),
-         ("TypeScript", "ArkTS", ("typescript", "ts", "arkts", "ark"), ("node",))]
-
-
-def _projects() -> dict[tuple[str, str], list[Path]]:
-    """Every project folder in the repo, grouped by language pair."""
-    found: dict[tuple[str, str], list[Path]] = {}
-    for pattern in ("tests/*/profile.json", "fixtures/*/profile.json", "fixtures/*/*/profile.json", "projects/*/profile.json"):
-        for f in sorted(ROOT.glob(pattern)) + (sorted(WORK.glob(pattern)) if WORK != ROOT else []):
-            try:
-                lang = json.loads(f.read_text(encoding="utf-8")).get("languages") or {}
-            except Exception:  # noqa: BLE001
-                continue
-            if lang.get("source") and lang.get("target"):
-                found.setdefault((lang["source"], lang["target"]), []).append(f.parent)
-    return found
-
-
-def choose_mode(state: dict, word: str = "") -> None:
-    import shutil
-    projects = _projects()
-    pairs = [(s, t, words, tools) for s, t, words, tools in MODES]
-    pairs += [(s, t, (), ()) for (s, t) in projects if (s, t) not in {(a, b) for a, b, _, _ in MODES}]
-    current = _pair(Path(state["project"]))
-    pick = None
-    if word:
-        w = word.lower().replace("→", "").replace("->", "").replace("-", "").replace(" ", "")
-        pick = next((i for i, (s, t, words, _) in enumerate(pairs) if w in words or w == str(i + 1) or w == (s + t).lower()), None)
-        if pick is None:
-            console.print(f"[red]no mode called {word}[/red]")
-    if pick is None:
-        options = []
-        for src, tgt, _, tools in pairs:
-            folders = projects.get((src, tgt), [])
-            missing = [x for x in tools if not shutil.which(x)]
-            note = ("no project folder yet" if not folders else f"needs {', '.join(missing)} installed" if missing
-                    else "ready  ·  " + ", ".join(_rel(f) for f in folders))
-            options.append((f"{src} → {tgt}" + ("   (current)" if (src, tgt) == current else ""), note, bool(folders)))
-        start = next((i for i, (a, b, _, _) in enumerate(pairs) if (a, b) == current), 0)
-        pick = picker.pick(console, "Migration", options, start)
-        if pick is None:
-            return
-    src, tgt, _, _ = pairs[pick]
-    folders = projects.get((src, tgt), [])
-    if not folders:
-        console.print(f"[yellow]{src} → {tgt} has no project folder yet.[/yellow] [dim]Put one under fixtures/ (format: CONTRACTS.md), then /mode again.[/dim]")
-        return
-    folder = folders[0]
-    if len(folders) > 1:
-        i = picker.pick(console, "Project", [(_rel(f), "", True) for f in folders])
-        if i is None:
-            return
-        folder = folders[i]
-    state["project"] = str(folder)
-    console.print(Text.assemble(("  mode  ", "#00e0c4"), (f"{src} → {tgt}", "bold"), (f"  ·  {_project_line(folder).split('  ·  ', 1)[1]}", "default")))
-
-
 def new_project(state: dict, args: list[str]) -> None:
-    """/new <file | folder | module name>: scan real code, tick the functions to migrate, build the project."""
+    """Scan real code, tick the functions to migrate, build the project."""
     import re
     from .newproject import create
     from .scan_python import scan
     if not args:
-        console.print("  what code?  [dim]a .py file, a folder, or a module name, e.g.[/dim]  /new humanize.number")
+        console.print("  what code?  [dim]a .py file, a folder, or a module name, e.g.[/dim]  /migrate humanize.number")
         return
     try:
         source = cli.find_source(args[0])
@@ -212,24 +153,6 @@ def choose_model(args: list[str]) -> None:
     for name, var in ROLES:
         console.print(Text.assemble((f"  {name:<21}", ACCENT), (os.environ.get(var, "not set"), "default")), highlight=False)
     console.print("  [dim]for this session only; the default lives in env/secrets.env[/dim]")
-
-
-def _pair(folder: Path) -> tuple[str, str]:
-    try:
-        lang = json.loads((folder / "profile.json").read_text(encoding="utf-8")).get("languages") or {}
-        return lang.get("source", "?"), lang.get("target", "?")
-    except Exception:  # noqa: BLE001
-        return "?", "?"
-
-
-# ── drawing ─────────────────────────────────────────────────────────────────
-LOGO = """\
-██████╗   █████╗  ██████╗  ██╗ ████████╗ ██╗   ██╗
-██╔══██╗ ██╔══██╗ ██╔══██╗ ██║ ╚══██╔══╝ ╚██╗ ██╔╝
-██████╔╝ ███████║ ██████╔╝ ██║    ██║     ╚████╔╝
-██╔═══╝  ██╔══██║ ██╔══██╗ ██║    ██║      ╚██╔╝
-██║      ██║  ██║ ██║  ██║ ██║    ██║       ██║
-╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═╝ ╚═╝    ╚═╝       ╚═╝""".splitlines()
 
 
 def _shade(t: float) -> str:
@@ -328,20 +251,22 @@ def handle(line: str, state: dict) -> bool:
         return False
     if cmd in ("help", "?"):
         show_help()
-    elif cmd == "clear":
-        console.clear()
-        banner(state)
-    elif cmd == "new":
-        new_project(state, args)
-    elif cmd == "check" and args and (args[0].endswith(".py") or Path(args[0]).is_file()):
-        _call(["new", args[0], "--list"])
+    elif cmd == "check":
+        if args and Path(args[0]).is_dir() and not (Path(args[0]) / "__init__.py").exists():
+            console.print(f"  that is a folder. To test a translation: /verify {args[0]}")
+        elif args:
+            _call(["new", args[0], "--list"])
+        else:
+            console.print("  which file?  example: /check pricing.py")
     elif cmd == "migrate":
         # one command from a file to proven Rust: build the tests if this file has none yet, then run the team
+        fresh = "--fresh" in args
+        args = [x for x in args if x != "--fresh"]
         if args and not (Path(args[0]) / "profile.json").exists():
             name = cli.project_name(args[0])
-            if (PROJECTS / name / "profile.json").exists():
+            if (PROJECTS / name / "profile.json").exists() and not fresh:
                 state["project"] = str(PROJECTS / name)
-                console.print(f"  [dim]using the tests already built for {name}  (/new {args[0]} rebuilds them)[/dim]")
+                console.print(f"  [dim]using the tests already built for {name}  (add --fresh to rebuild them)[/dim]")
             else:
                 new_project(state, args[:1])
                 if Path(state["project"]).name != name:
@@ -349,8 +274,6 @@ def handle(line: str, state: dict) -> bool:
         state["last_run"] = _new_id("team")
         _save(state)
         _call(["run", state["project"], "--run-id", state["last_run"]] + (["--start-from", args[1]] if len(args) > 1 else []))
-    elif cmd in ("mode", "modes"):
-        choose_mode(state, " ".join(args))
     elif cmd == "use":
         places = [Path(args[0]), PROJECTS / args[0], ROOT / args[0]] if args else []
         folder = next((f.resolve() for f in places if (f / "profile.json").exists()), Path("."))
@@ -359,13 +282,7 @@ def handle(line: str, state: dict) -> bool:
             console.print(f"project: {_project_line(folder)}")
         else:
             console.print("[red]that folder has no profile.json[/red]  example: /use tests/flow_fixture")
-    elif cmd == "scan":
-        _call(["scan", project])
-    elif cmd == "run":
-        state["last_run"] = _new_id("team")
-        _save(state)
-        _call(["run", project, "--run-id", state["last_run"]] + (["--start-from", args[0]] if args else []))
-    elif cmd in ("check", "verify"):
+    elif cmd == "verify":
         folder = args[0] if args else ""
         author = args[1] if len(args) > 1 else "outside"
         if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
@@ -375,7 +292,7 @@ def handle(line: str, state: dict) -> bool:
             _save(state)
             _call(["check", project, str(ROOT / folder if (ROOT / folder).exists() else folder), "--author", author, "--run-id", state["last_run"]])
             _call(["status", state["last_run"]])
-    elif cmd in ("status", "evaluate", "export"):
+    elif cmd in ("status", "export"):
         run_id = args[0] if args else None
         if run_id is None:
             rows = _run_rows(12)
