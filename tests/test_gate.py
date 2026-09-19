@@ -41,7 +41,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(v.status, "ACCEPTED", v.detail)
         self.assertEqual(v.cases, {"expected": 6, "observed": 6, "passed": 6, "skipped": 0})
         types = [json.loads(l)["type"] for l in (self.run_dir / "events.jsonl").read_text().splitlines()]
-        self.assertEqual(types, ["candidate.submitted", "chunk.accepted"])
+        self.assertEqual(types, ["candidate.submitted", "candidate.verified"])
 
     def test_real_worker_bug_is_rejected_with_counterexample(self):
         v = self.check(cand(WORKER_A))

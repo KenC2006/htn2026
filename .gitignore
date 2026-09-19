@@ -11,3 +11,4 @@ runs/
 logs/
 tests/gate_fixture/frozen.lock.json
 __pycache__/
+tests/flow_fixture/frozen.lock.json

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "contract_id": "time-arithmetic",
+  "version": 1,
+  "behavior": "For every integer ts in [-10^12, 10^12] and width in [1, 86400000], each export returns exactly what the Python source returns.",
+  "guidance": []
+}

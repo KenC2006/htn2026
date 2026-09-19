@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "chunk_id": "S3",
+  "profile": "flow-selftest",
+  "source_files": [
+    "legacy/timeparts.py"
+  ],
+  "exports": [
+    "split"
+  ],
+  "write_allowlist": [
+    "target/split.rs"
+  ],
+  "depends_on": [
+    "S1",
+    "S2"
+  ],
+  "worker_notes": "The frozen harness declares `mod bucket; mod offset; mod split;` from target/bucket.rs, target/offset.rs, target/split.rs. Functions must be `pub`. No dependencies. Signature: pub fn split(ts: i64, width: i64) -> (i64, i64). It MUST call crate::bucket::bucket and crate::offset::offset rather than re-implementing them.",
+  "contract_ids": [
+    "time-arithmetic"
+  ],
+  "limits": {
+    "attempts": 2,
+    "verify_seconds_per_attempt": 120
+  }
+}

@@ -19,9 +19,24 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
   "run_source": ["python", "runners/py_source.py"],
   "run_target": ["python", "runners/py_target.py"],
   "build_target": ["maturin", "develop", "--release"],
-  "verify_seconds": 180
+  "verify_seconds": 180,
+  "frozen": ["profile.json", "chunks/*", "contracts/*", "legacy/*", "harness/*", "runners/*", "cases.jsonl"],
+  "oracle_paths": ["legacy", "cases.jsonl"],
+  "forbid_patterns": [{"regex": "\\bunsafe\\b", "why": "no application unsafe"}]
 }
 ```
+
+- `frozen`: globs of files no worker may ever change. The gate hashes them before the run and rejects any drift.
+- `oracle_paths`: removed from the workspace the candidate is built and run in, so the target cannot call the original.
+- `forbid_patterns`: regexes checked against worker files only.
+- Commands run with the profile folder (source) or the candidate workspace (build, target) as the working directory. No API keys are in their environment.
+
+**Working example to copy: `tests/flow_fixture/`** (three chunks, one dependency, real `rustc`). Try it:
+
+    . env/activate-swarm.sh
+    python -m unittest tests.test_gate tests.test_flow
+    python -m ratchet.framework.run workflows/migrate.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "try-1"}'
+    python env/show-run.py try-1
 
 ### Case (one JSON object per line in `cases.jsonl`)
 
@@ -64,6 +79,19 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 
 Workers may only return files listed in `write_allowlist`. Anything else is `REJECTED_POLICY`.
 
+- `worker_notes` (optional string): what the worker must know about your scaffold, e.g. exact signature, module layout, "must call crate::p1::dedupe_latest". The worker sees the source files, these notes, the contracts, and accepted dependency files. Nothing else.
+- **Ship a compiling placeholder for every allowlisted file** (see `tests/flow_fixture/target/`). Chunks are built one at a time on top of the accepted tree, so the scaffold must compile before the other chunks exist.
+- Tag every case with its `chunk_id`. At integration the gate re-runs the cases of every accepted chunk plus the new one.
+
+### Contracts: `fixtures/telemetry-workbench/<profile>/contracts/<contract_id>.json`
+
+```json
+{"schema_version": 1, "contract_id": "bucket-semantics", "version": 1,
+ "behavior": "Frozen, observable behavior in plain words. Never edited during a run.", "guidance": []}
+```
+
+`guidance` starts empty. The steward's accepted decisions are appended to the run's copy, never to your file.
+
 ## 3. What the engine writes (D reads these; nobody else writes them)
 
 `runs/<run_id>/events.jsonl`, append-only, one event per line:
@@ -75,7 +103,8 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 ```
 
 Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question`, `decision.recorded`,
-`candidate.submitted`, `candidate.rejected`, `candidate.stale`, `chunk.accepted`, `chunk.blocked`, `run.finished`.
+`candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
+`chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
 
 Gate verdict `reason` values (in gate order): `STALE`, `REJECTED_POLICY`, `REJECTED_INTEGRITY`, `REJECTED_BUILD`,
 `REJECTED_TEST`, `REJECTED_BEHAVIOR`, `REJECTED_INTEGRATION`, `ACCEPTED`.
@@ -90,6 +119,8 @@ Gate verdict `reason` values (in gate order): `STALE`, `REJECTED_POLICY`, `REJEC
  "evidence_refs": ["legacy_python/window_stats.py", "cases/negative-boundary-01"],
  "affected_chunks": ["P2", "P3"], "proposed_by": "contract-steward"}
 ```
+
+`runs/<run_id>/accepted/`: the accepted files. `runs/<run_id>/verdicts/*.json`: every gate verdict, with the counterexample.
 
 `runs/<run_id>/receipts/<chunk_id>.json`: see plan section 14, "Gate verdict and receipt". Shape is frozen as written there.
 

@@ -128,7 +128,12 @@ def _bad_path(rel: str) -> str | None:
 
 def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, run_dir: Path, *,
           attempt_id: str | None = None, current_contract_hashes: dict | None = None,
-          events: EventLog | None = None) -> Verdict:
+          events: EventLog | None = None, overlay: dict | None = None,
+          case_chunks: list | None = None, fail_status: str | None = None,
+          accept_event: str = "candidate.verified") -> Verdict:
+    """overlay: already-accepted files {path: content} laid down before the candidate's.
+    case_chunks: run these chunks' cases instead of only `chunk_id`'s (integration re-check).
+    fail_status: report build/test/behavior failures under this status (REJECTED_INTEGRATION)."""
     t0 = time.monotonic()
     profile_dir, run_dir = Path(profile_dir).resolve(), Path(run_dir).resolve()
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
@@ -140,6 +145,8 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
                 candidate_hash=_sha(json.dumps(files, sort_keys=True).encode()))
 
     def done(status: str, stage: str, detail: str = "") -> Verdict:
+        if fail_status and status in ("REJECTED_BUILD", "REJECTED_TEST", "REJECTED_BEHAVIOR"):
+            detail, status = f"{status}: {detail}", fail_status
         v.status, v.stage, v.detail = status, stage, detail
         v.duration_s = round(time.monotonic() - t0, 2)
         out = run_dir / "verdicts"
@@ -147,7 +154,7 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
         (out / f"{attempt_id.replace(':', '-')}.json").write_text(
             json.dumps(asdict(v), indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
         if events:
-            events.emit("chunk.accepted" if v.accepted else ("candidate.stale" if status == "STALE" else "candidate.rejected"),
+            events.emit(accept_event if v.accepted else ("candidate.stale" if status == "STALE" else "candidate.rejected"),
                         actor="verifier", profile=v.profile, chunk_id=chunk_id, attempt_id=attempt_id,
                         payload={"reason": status, "stage": stage, "detail": detail[:500],
                                  "case_id": (v.counterexample or {}).get("case_id"), "cases": v.cases})
@@ -215,13 +222,14 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
         return skip
 
     shutil.copytree(profile_dir, ws, ignore=_ignore)
-    for f in files:
+    for f in [{"path": k, "content": c} for k, c in (overlay or {}).items()] + files:
         dest = ws / f["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(f["content"], encoding="utf-8", newline="\n")
 
     # Only this chunk's cases. Inputs go into the workspace; expected outputs never do.
-    cases = [c for c in _read_jsonl(Path(cases_path)) if c.get("chunk_id") in (None, chunk_id)]
+    wanted = set(case_chunks or [chunk_id])
+    cases = [c for c in _read_jsonl(Path(cases_path)) if c.get("chunk_id") is None or c["chunk_id"] in wanted]
     ids = [c["case_id"] for c in cases]
     if not cases or len(set(ids)) != len(ids):
         return done("BLOCKED", "case_inventory", "no cases for this chunk, or duplicate case_id in the case file")
