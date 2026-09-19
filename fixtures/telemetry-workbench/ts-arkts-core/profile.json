@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile": "ts-arkts-core",
+  "languages": {
+    "source": "TypeScript",
+    "target": "ArkTS"
+  },
+  "run_source": [
+    "python",
+    "runners/source.py"
+  ],
+  "build_target": [
+    "python",
+    "runners/build.py"
+  ],
+  "compile_target": ["python", "runners/build.py", "--unsigned"],
+  "run_target": [
+    "python",
+    "runners/target.py"
+  ],
+  "preflight": [
+    "python",
+    "runners/build.py",
+    "--preflight"
+  ],
+  "verify_seconds": 300,
+  "frozen": [
+    "profile.json",
+    "chunks/*",
+    "contracts/*",
+    "legacy/*",
+    "runners/*",
+    "harness/*",
+    "cases.jsonl",
+    "named_cases.jsonl",
+    "locked/*",
+    "gen_cases.py"
+  ],
+  "oracle_paths": [
+    "legacy",
+    "cases.jsonl",
+    "named_cases.jsonl",
+    "locked",
+    "gen_cases.py"
+  ],
+  "locked_cases": "locked/cases.jsonl",
+  "forbid_patterns": [
+    {
+      "regex": "\\b(eval|Function|require|globalThis|console|hilog|Reflect|Proxy)\\b",
+      "why": "dynamic execution and platform access are excluded"
+    }
+  ]
+}

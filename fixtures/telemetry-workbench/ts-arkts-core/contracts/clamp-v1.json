@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract_id": "clamp-v1",
+  "version": 1,
+  "behavior": "If lower > upper throw INVALID_BOUNDS; otherwise return Math.min(upper, Math.max(lower, value)). Bounds are inclusive.",
+  "guidance": [],
+  "evidence_refs": []
+}

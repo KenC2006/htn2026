@@ -250,7 +250,8 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
 
     # 5. Build with the real target compiler.
     if profile.get("build_target"):
-        code, log = _run(profile["build_target"], ws, limit)
+        command = profile.get("compile_target", profile["build_target"]) if stop_after_build else profile["build_target"]
+        code, log = _run(command, ws, limit)
         v.logs["build"] = log
         if code != 0:
             return done("REJECTED_BUILD", "build", log[-1500:])

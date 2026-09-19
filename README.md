@@ -107,3 +107,13 @@ Lua apps for the stock firmware, pushed with `tools/deploy.py`:
 | `snitch/` | a name tag that tells on you |
 | `cbradio/` | CB-radio text chat between badges |
 | `probe/` | a scratch app for trying things |
+
+## ArkTS route (in development)
+
+The verified DevEco smoke app is in [experiments/arkts-smoke](experiments/arkts-smoke/README.md).
+The [TypeScript-to-ArkTS implementation plan](docs/TS_TO_ARKTS_PLAN.md) maps it
+onto Parity's existing Python-to-Rust runner and gate architecture. A first
+profile (`fixtures/telemetry-workbench/ts-arkts-core`, three hand-ported
+functions) runs and verifies on the real HarmonyOS emulator end-to-end; the
+agent-driven migration workflow and automatic TypeScript onboarding are not
+implemented yet.

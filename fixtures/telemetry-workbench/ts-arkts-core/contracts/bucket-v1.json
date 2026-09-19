@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "contract_id": "bucket-v1",
+  "version": 1,
+  "behavior": "Width <= 0 throws INVALID_WIDTH, including empty summaries. bucketStart = Math.floor(timestampMs / widthMs) * widthMs. summarizeBuckets calls bucketStart and returns [start,count] numeric pairs sorted ascending; empty input returns [].",
+  "guidance": [],
+  "evidence_refs": []
+}

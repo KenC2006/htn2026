@@ -1,0 +1,71 @@
+{"case_id": "named-T1-0000", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": -1}}
+{"case_id": "named-T1-0001", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 0}}
+{"case_id": "named-T1-0002", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 1}}
+{"case_id": "named-T1-0003", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 10}}
+{"case_id": "named-T1-0004", "chunk_id": "T1", "input": {"timestampMs": -1000000, "widthMs": 10000}}
+{"case_id": "named-T1-0005", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": -1}}
+{"case_id": "named-T1-0006", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 0}}
+{"case_id": "named-T1-0007", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 1}}
+{"case_id": "named-T1-0008", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 10}}
+{"case_id": "named-T1-0009", "chunk_id": "T1", "input": {"timestampMs": -11, "widthMs": 10000}}
+{"case_id": "named-T1-0010", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": -1}}
+{"case_id": "named-T1-0011", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 0}}
+{"case_id": "named-T1-0012", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 1}}
+{"case_id": "named-T1-0013", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 10}}
+{"case_id": "named-T1-0014", "chunk_id": "T1", "input": {"timestampMs": -10, "widthMs": 10000}}
+{"case_id": "named-T1-0015", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": -1}}
+{"case_id": "named-T1-0016", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 0}}
+{"case_id": "named-T1-0017", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 1}}
+{"case_id": "named-T1-0018", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 10}}
+{"case_id": "named-T1-0019", "chunk_id": "T1", "input": {"timestampMs": -1, "widthMs": 10000}}
+{"case_id": "named-T1-0020", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": -1}}
+{"case_id": "named-T1-0021", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 0}}
+{"case_id": "named-T1-0022", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 1}}
+{"case_id": "named-T1-0023", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 10}}
+{"case_id": "named-T1-0024", "chunk_id": "T1", "input": {"timestampMs": 0, "widthMs": 10000}}
+{"case_id": "named-T1-0025", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": -1}}
+{"case_id": "named-T1-0026", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 0}}
+{"case_id": "named-T1-0027", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 1}}
+{"case_id": "named-T1-0028", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 10}}
+{"case_id": "named-T1-0029", "chunk_id": "T1", "input": {"timestampMs": 1, "widthMs": 10000}}
+{"case_id": "named-T1-0030", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": -1}}
+{"case_id": "named-T1-0031", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 0}}
+{"case_id": "named-T1-0032", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 1}}
+{"case_id": "named-T1-0033", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 10}}
+{"case_id": "named-T1-0034", "chunk_id": "T1", "input": {"timestampMs": 9, "widthMs": 10000}}
+{"case_id": "named-T1-0035", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": -1}}
+{"case_id": "named-T1-0036", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 0}}
+{"case_id": "named-T1-0037", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 1}}
+{"case_id": "named-T1-0038", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 10}}
+{"case_id": "named-T1-0039", "chunk_id": "T1", "input": {"timestampMs": 10, "widthMs": 10000}}
+{"case_id": "named-T1-0040", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": -1}}
+{"case_id": "named-T1-0041", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 0}}
+{"case_id": "named-T1-0042", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 1}}
+{"case_id": "named-T1-0043", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 10}}
+{"case_id": "named-T1-0044", "chunk_id": "T1", "input": {"timestampMs": 11, "widthMs": 10000}}
+{"case_id": "named-T1-0045", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": -1}}
+{"case_id": "named-T1-0046", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 0}}
+{"case_id": "named-T1-0047", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 1}}
+{"case_id": "named-T1-0048", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 10}}
+{"case_id": "named-T1-0049", "chunk_id": "T1", "input": {"timestampMs": 1000000, "widthMs": 10000}}
+{"case_id": "named-T2-0050", "chunk_id": "T2", "input": {"value": 0, "lower": 0, "upper": 0}}
+{"case_id": "named-T2-0051", "chunk_id": "T2", "input": {"value": -1, "lower": 0, "upper": 1}}
+{"case_id": "named-T2-0052", "chunk_id": "T2", "input": {"value": 2, "lower": 0, "upper": 1}}
+{"case_id": "named-T2-0053", "chunk_id": "T2", "input": {"value": 0, "lower": 1, "upper": -1}}
+{"case_id": "named-T2-0054", "chunk_id": "T2", "input": {"value": -1000000, "lower": -1000000, "upper": 1000000}}
+{"case_id": "named-T3-0055", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": -1}}
+{"case_id": "named-T3-0056", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 0}}
+{"case_id": "named-T3-0057", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 1}}
+{"case_id": "named-T3-0058", "chunk_id": "T3", "input": {"timestamps": [], "widthMs": 10}}
+{"case_id": "named-T3-0059", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": -1}}
+{"case_id": "named-T3-0060", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 0}}
+{"case_id": "named-T3-0061", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 1}}
+{"case_id": "named-T3-0062", "chunk_id": "T3", "input": {"timestamps": [-1, 0, 1], "widthMs": 10}}
+{"case_id": "named-T3-0063", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": -1}}
+{"case_id": "named-T3-0064", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 0}}
+{"case_id": "named-T3-0065", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 1}}
+{"case_id": "named-T3-0066", "chunk_id": "T3", "input": {"timestamps": [10, -10, 10, -1, 0], "widthMs": 10}}
+{"case_id": "named-T3-0067", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": -1}}
+{"case_id": "named-T3-0068", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 0}}
+{"case_id": "named-T3-0069", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 1}}
+{"case_id": "named-T3-0070", "chunk_id": "T3", "input": {"timestamps": [-1000000, 1000000], "widthMs": 10}}

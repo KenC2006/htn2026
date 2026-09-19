@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "chunk_id": "T2",
+  "profile": "ts-arkts-core",
+  "source_files": [
+    "legacy/ClampValue.ts"
+  ],
+  "exports": [
+    "clampValue"
+  ],
+  "write_allowlist": [
+    "target/ClampValue.ets"
+  ],
+  "depends_on": [],
+  "contract_ids": [
+    "numeric-v1",
+    "clamp-v1"
+  ],
+  "worker_notes": "export function clampValue(value: number, lower: number, upper: number): number. Pure synchronous numeric code only. Throw new Error(\"INVALID_WIDTH\") for widthMs <= 0; clamp throws new Error(\"INVALID_BOUNDS\") for lower > upper. Summary returns [bucketStart,count] pairs sorted by bucket start and must import { bucketStart } from \"./BucketStart\". No other imports, platform APIs, dynamic execution, or module-level effects.",
+  "limits": {
+    "attempts": 3,
+    "verify_seconds_per_attempt": 300
+  },
+  "example_input": {
+    "value": 12,
+    "lower": 0,
+    "upper": 10
+  },
+  "input_domain": {
+    "value": {
+      "type": "int",
+      "min": -1000000,
+      "max": 1000000
+    },
+    "lower": {
+      "type": "int",
+      "min": -1000000,
+      "max": 1000000
+    },
+    "upper": {
+      "type": "int",
+      "min": -1000000,
+      "max": 1000000
+    }
+  }
+}

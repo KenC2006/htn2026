@@ -18,3 +18,18 @@ badge/backup/
 
 # Projects made by `parity new` (they contain a copy of the library being migrated) and its downloads.
 projects/
+
+# ArkTS local DevEco outputs and signing material
+/experiments/arkts-smoke/node_modules/
+/experiments/arkts-smoke/oh_modules/
+/experiments/arkts-smoke/.hvigor/
+/experiments/arkts-smoke/**/build/
+/experiments/arkts-smoke/local.properties
+/experiments/arkts-smoke/signatures/
+/experiments/arkts-smoke/build-profile.json5
+/experiments/arkts-smoke/.smoke-logs/
+/experiments/arkts-smoke/.idea/
+
+# Ephemeral ArkTS artifacts (the gate removes these after each attempt).
+_arkts.hap
+_arkts_artifact.json

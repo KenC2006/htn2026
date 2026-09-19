@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "chunk_id": "T1",
+  "profile": "ts-arkts-core",
+  "source_files": [
+    "legacy/BucketStart.ts"
+  ],
+  "exports": [
+    "bucketStart"
+  ],
+  "write_allowlist": [
+    "target/BucketStart.ets"
+  ],
+  "depends_on": [],
+  "contract_ids": [
+    "numeric-v1",
+    "bucket-v1"
+  ],
+  "worker_notes": "export function bucketStart(timestampMs: number, widthMs: number): number. Pure synchronous numeric code only. Throw new Error(\"INVALID_WIDTH\") for widthMs <= 0; clamp throws new Error(\"INVALID_BOUNDS\") for lower > upper. Summary returns [bucketStart,count] pairs sorted by bucket start and must import { bucketStart } from \"./BucketStart\". No other imports, platform APIs, dynamic execution, or module-level effects.",
+  "limits": {
+    "attempts": 3,
+    "verify_seconds_per_attempt": 300
+  },
+  "example_input": {
+    "timestampMs": -1,
+    "widthMs": 10
+  },
+  "input_domain": {
+    "timestampMs": {
+      "type": "int",
+      "min": -1000000,
+      "max": 1000000
+    },
+    "widthMs": {
+      "type": "int",
+      "min": -2,
+      "max": 10000
+    }
+  }
+}
