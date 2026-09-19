@@ -21,16 +21,15 @@ Fable's one miss didn't compile, and its own notes didn't mention it. Parity fou
 
 ### Run it
 
-    bin\parity
+Add `bin` to PATH, go to the folder your Python is in, and type `parity`. Then:
 
-`/run` migrates the example, `/check <folder>` tests a translation someone else wrote, `/help` lists the rest. Without the console: `python -m parity --help`.
+    /check pricing.py            which functions can be migrated, and why not for the rest
+    /migrate pricing.py          pick functions, tests get built from the original, the agents migrate it
+    /migrate pricing.py <folder> start from a translation you already have; agents fix only what fails
+    /verify <folder>             test a translation someone else wrote, no agents
+    /export                      the proven Rust lands in ./pricing-rust/
 
-On your own code, from any folder (add `bin` to PATH first):
-
-    parity new pricing.py        scan it, pick functions, build the tests
-    parity run                   the agents migrate it
-    parity run --start-from <folder>    check an existing translation, agents fix only what fails
-    parity export <run id>       the proven Rust lands in ./pricing-rust/
+Your Python is never changed. The same words work without the console: `parity check pricing.py`, `parity migrate pricing.py`.
 
 `parity new` also takes a folder or a PyPI module name. It only accepts pure functions: anything that touches files, the clock, the network or shared state is refused with the reason. Python to Rust only. Everything it makes goes into `.parity/` in your folder.
 

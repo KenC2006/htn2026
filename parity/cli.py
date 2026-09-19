@@ -464,11 +464,25 @@ def export(ns: argparse.Namespace) -> int:
     return 0 if exportable else 1
 
 
+def project_name(source: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]+", "-", source.replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
         from .shell import shell
         return shell()
+    if argv[0] == "check" and len(argv) == 2 and argv[1].endswith(".py"):      # parity check file.py: what can be migrated?
+        argv = ["new", argv[1], "--list"]
+    if argv[0] == "migrate" and len(argv) >= 2:                                 # parity migrate file.py [folder]
+        name = project_name(argv[1])
+        if not (PROJECTS / name / "profile.json").exists():
+            code = main(["new", argv[1], "--name", name])
+            if code:
+                return code
+        return main(["run", name] + (["--start-from", argv[2]] if len(argv) > 2 else []))
     ap = argparse.ArgumentParser(prog="parity", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)

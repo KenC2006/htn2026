@@ -34,14 +34,13 @@ console = Console()
 ACCENT = picker.ACCENT
 
 COMMANDS = [
-    ("/new <code>", "start from real code: a .py file, a folder, or a module name like humanize.number"),
-    ("/run [folder]", "migrate the project with the agent team; with a folder, start from the translation in it and fix only what fails"),
-    ("/check <folder> [name]", "check a translation someone else wrote"),
+    ("/check <file.py>", "which functions in it can be migrated, and why not for the rest"),
+    ("/migrate <file.py> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails"),
+    ("/verify <folder> [name]", "test a translation someone else wrote, no agents"),
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
-    ("/export [run]", "write the patch, report and receipts"),
-    ("/mode", "switch the migration: Python → Rust, C → Rust, TypeScript → ArkTS"),
-    ("/use <folder>", "point at a specific project folder"),
+    ("/export [run]", "put the proven Rust in this folder, with a report"),
+    ("/use <project>", "go back to a project made earlier (then /migrate with no file runs it again)"),
     ("/models", "change which AI models the agents use"),
     ("/quit", "leave"),
 ]
@@ -170,15 +169,14 @@ def new_project(state: dict, args: list[str]) -> None:
                               {i for i, f in enumerate(functions) if f.ok and not f.name.startswith("_")})
     if not ticked:
         return
-    name = re.sub(r"[^a-z0-9]+", "-", args[0].replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+    name = cli.project_name(args[0])
     try:
         project = create(source, name, [functions[i].name for i in ticked], say=lambda m: console.print(f"  {m}", style="dim", highlight=False))
     except SystemExit as e:
         console.print(f"[red]{e.code}[/red]")
         return
     state["project"] = str(project)
-    console.print(Text.assemble(("  mode  ", ACCENT), (_project_line(project), "default")))
-    console.print("  [dim]/run to migrate it[/dim]")
+    console.print(Text.assemble(("  ready  ", ACCENT), (_project_line(project), "default")))
 
 
 MODELS = [("qwen/qwen3-coder-next", "$0.12 in / $0.80 out per million tokens  ·  fast, cheap"),
@@ -335,6 +333,22 @@ def handle(line: str, state: dict) -> bool:
         banner(state)
     elif cmd == "new":
         new_project(state, args)
+    elif cmd == "check" and args and (args[0].endswith(".py") or Path(args[0]).is_file()):
+        _call(["new", args[0], "--list"])
+    elif cmd == "migrate":
+        # one command from a file to proven Rust: build the tests if this file has none yet, then run the team
+        if args and not (Path(args[0]) / "profile.json").exists():
+            name = cli.project_name(args[0])
+            if (PROJECTS / name / "profile.json").exists():
+                state["project"] = str(PROJECTS / name)
+                console.print(f"  [dim]using the tests already built for {name}  (/new {args[0]} rebuilds them)[/dim]")
+            else:
+                new_project(state, args[:1])
+                if Path(state["project"]).name != name:
+                    return True
+        state["last_run"] = _new_id("team")
+        _save(state)
+        _call(["run", state["project"], "--run-id", state["last_run"]] + (["--start-from", args[1]] if len(args) > 1 else []))
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
     elif cmd == "use":
@@ -351,11 +365,11 @@ def handle(line: str, state: dict) -> bool:
         state["last_run"] = _new_id("team")
         _save(state)
         _call(["run", project, "--run-id", state["last_run"]] + (["--start-from", args[0]] if args else []))
-    elif cmd == "check":
+    elif cmd in ("check", "verify"):
         folder = args[0] if args else ""
         author = args[1] if len(args) > 1 else "outside"
         if not folder or not (ROOT / folder).exists() and not Path(folder).exists():
-            console.print("[red]which folder holds the translation?[/red]  example: /check tests/fable_oneshot_candidate fable-one-shot")
+            console.print("[red]which folder holds the translation?[/red]  example: /verify fable-rust fable")
         else:
             state["last_run"] = _new_id(author)
             _save(state)
