@@ -1,0 +1,9 @@
+.venv-swarm/
+.venv-target/
+.overlay-pydantic2/
+.jiuwenswarm/
+.playwright-mcp/
+target/
+env/secrets.env
+__pycache__/
+*.pyc
