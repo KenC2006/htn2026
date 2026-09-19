@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 
 from . import templates
-from .engine.domain import ALPHABET, in_domain
+from .engine.domain import ALPHABET, coerce, in_domain
 from .scan_python import Function, scan
 
 from .paths import PROJECTS, ROOT  # noqa: E402,F401
@@ -80,11 +80,11 @@ def _default_value(f: Function, name: str):
 def make_value(rule: dict, rng: random.Random):
     if rule.get("nullable") and rng.random() < 0.15:
         return None
-    if rule.get("choices") and (rng.random() < 0.8 or rule["type"] == "str" and "max_len" not in rule):
-        return rng.choice(rule["choices"])
     kind = rule["type"]
+    if rule.get("choices") and not kind.startswith("list[") and (rng.random() < 0.8 or kind == "str" and "max_len" not in rule):
+        return coerce(rule, rng.choice(rule["choices"]))
     if kind.startswith("list["):
-        item = {**rule, "type": kind[5:-1], "nullable": False, "choices": None}
+        item = {**rule, "type": kind[5:-1], "nullable": False}
         return [make_value(item, rng) for _ in range(rng.choice([0, 1, 1, 2, 3, rule.get("max_items", 8)]))]
     if kind == "bool":
         return rng.random() < 0.5
@@ -273,6 +273,7 @@ def make_cases(name: str, piece: str, rules: dict, n: int, seed: int, examples: 
     pool = [e for e in examples if isinstance(e, dict) and set(e) == set(rules) and not any(in_domain(rules[k], v) for k, v in e.items())]
     while len(cases) < n and len(seen) < n * 20:
         value = pool.pop(0) if pool else {k: make_value(r, rng) for k, r in rules.items()}
+        value = {k: coerce(rules[k], v) for k, v in value.items()}
         key = json.dumps(value, sort_keys=True)
         seen.add(key + str(len(seen)) if key in seen else key)
         if key in {json.dumps(c["input"], sort_keys=True) for c in cases}:

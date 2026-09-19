@@ -17,7 +17,7 @@ from pathlib import Path
 from ..framework.team import TEAM, MemberSpec, ToolSpec
 from . import gate
 from .contracts import ContractLedger, DecisionRejected
-from .domain import in_domain
+from .domain import coerce, in_domain
 from .events import EventLog
 from .integrator import Integrator
 
@@ -304,6 +304,8 @@ class RunContext:
                 return (f"No usable inputs. Each input must be an object with exactly these keys: {sorted(keys)}, inside the allowed range. "
                         f"Refused: {refused[:4]}")
             ctx.tester_calls[chunk_id] = n = ctx.tester_calls.get(chunk_id, 0) + 1
+            rules = ctx.chunks[chunk_id].get("input_domain") or {}
+            inputs = [{k: coerce(rules.get(k, {}), v) for k, v in one.items()} for one in inputs]
             candidate, overlay = ctx.under_test[chunk_id]
             export = ctx.chunks[chunk_id]["exports"][0]
             cases = [{"schema_version": 1, "case_id": f"try-{i}", "chunk_id": chunk_id, "export": export, "input": v} for i, v in enumerate(inputs)]

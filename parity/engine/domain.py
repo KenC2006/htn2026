@@ -4,6 +4,17 @@ from __future__ import annotations
 ALPHABET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789      _-.,'"
 
 
+def coerce(rule: dict, x):
+    """The value as the declared type sees it. JSON writes 3600.0 and 3600 differently and Python's str() does too,
+    so a whole number handed to a float input must become a float before the original runs."""
+    kind = rule.get("type") or ""
+    if kind == "float" and isinstance(x, int) and not isinstance(x, bool):
+        return float(x)
+    if kind == "list[float]" and isinstance(x, list):
+        return [float(v) if isinstance(v, int) and not isinstance(v, bool) else v for v in x]
+    return x
+
+
 def in_domain(rule: dict, x) -> str:
     """'' if x is allowed by the rule, else why not."""
     if x is None:
