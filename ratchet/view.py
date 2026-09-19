@@ -84,6 +84,7 @@ class Board:
         self.t0 = self.now = 0.0
         self.finished: dict | None = None
         self.hidden: str = ""
+        self.hidden_pass = self.hidden_total = 0
 
     # ── helpers ────────────────────────────────────────────────────────────
     def _counterexample(self, e: dict, export: str) -> str:
@@ -128,7 +129,7 @@ class Board:
         t, p, c = e["type"], e["payload"], e.get("chunk_id") or ""
         self.now = _ts(e)
         piece = self.pieces.get(c)
-        worker = "one agent" if self.mode == "single-agent" else f"worker {c}"
+        worker = "one agent" if self.mode == "single-agent" else self.mode[9:] if self.mode.startswith("outside: ") else f"worker {c}"
         if t == "run.started":
             self.t0, self.mode = _ts(e), p.get("mode", "team")
             try:
@@ -229,8 +230,13 @@ class Board:
             self._set(piece, "NEEDS A HUMAN", "bold red", _short(p.get("reason") or p.get("detail"), 110), "bold red")
             self.say(e, "run", "run", f"{c} needs a human: {_short(p.get('reason') or p.get('detail'), 140)}")
         elif t == "evaluation.locked":
-            self.hidden = f"{p.get('status')}  {_short(p.get('detail'), 60)}"
-            self.say(e, "checker", "checker", f"HIDDEN TEST SET (never seen by any agent): {self.hidden}")
+            got, want = p.get("cases", {}).get("passed", 0), p.get("cases", {}).get("expected", 0)
+            self.hidden_pass, self.hidden_total = self.hidden_pass + got, self.hidden_total + want
+            ok = self.hidden_pass == self.hidden_total
+            self.hidden = f"{'PASS' if ok else 'FAIL'} {self.hidden_pass}/{self.hidden_total}"
+            if got != want:
+                self._set(piece, "FAILS the hidden test set", "bold red", f"✗ hidden test set: only {got} of {want} match the original", "bold red")
+            self.say(e, "checker", "checker", f"{'✓' if got == want else '✗'} hidden test set (never shown to any agent): {c} matches on {got} of {want}")
         elif t == "run.finished":
             self.finished = p
             self.say(e, "run", "run", f"finished: {len(p.get('accepted', []))}/{len(self.pieces)} pieces kept")
@@ -260,7 +266,7 @@ class Board:
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
         head = Text.assemble(("  RATCHET  ", "bold black on green"), f"  {self.title}   ",
-                             ("ONE AGENT" if self.mode == "single-agent" else "AGENT TEAM", "bold"),
+                             ("ONE AGENT" if self.mode == "single-agent" else self.mode.upper() if self.mode.startswith("outside") else "AGENT TEAM", "bold"),
                              f"   run {self.run_id}   {int(max(self.now - self.t0, 0))}s   ",
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),
                              (f"   shared rules: {len(self.rules)}", "yellow" if self.rules else "dim"),

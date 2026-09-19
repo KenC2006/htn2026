@@ -3,6 +3,7 @@
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
   run <profile_dir> [--solo] [--resume --run-id X]   team migration (or single-agent baseline); --resume continues a run
+  check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
   status <run_id>             progress table rebuilt from the event log
   evaluate <run_id>           single-use locked evaluation: cases never seen by agents or repair loops
@@ -150,6 +151,62 @@ def run(ns: argparse.Namespace) -> int:
     return code
 
 
+# ───────────────────────── check ─────────────────────────
+
+def check(ns: argparse.Namespace) -> int:
+    """Check a translation written by anyone (another model, a person) with the same checker, then the hidden test set."""
+    from .engine import gate
+    from .engine.contracts import ContractLedger
+    from .engine.evaluate import locked_evaluate
+    from .engine.events import EventLog
+    from .engine.integrator import Integrator
+
+    profile_dir, cand_dir = Path(ns.profile_dir).resolve(), Path(ns.candidate_dir).resolve()
+    run_id = ns.run_id or datetime.now().strftime("check-%m%d-%H%M%S")
+    run_dir = RUNS / run_id
+    if (run_dir / "events.jsonl").exists():
+        sys.exit(f"run {run_id} already exists; choose another --run-id.")
+    profile, chunks = _load_profile(profile_dir)
+    events = EventLog(run_dir, run_id)
+    gate.freeze(profile_dir)
+    ledger = ContractLedger(profile_dir, run_dir, chunks, events)
+    integ = Integrator(profile_dir, run_dir, profile_dir / "cases.jsonl", ledger, events)
+    events.emit("run.started", actor="scheduler", profile=profile["profile"],
+                payload={"chunks": list(chunks), "profile_dir": str(profile_dir), "mode": f"outside: {ns.author}", "reused": []})
+    blocked, todo = {}, list(chunks)
+    while todo:
+        ready = [c for c in todo if set(chunks[c].get("depends_on", [])) <= set(integ.accepted) | set(blocked)]
+        for cid in ready or todo:
+            todo.remove(cid)
+            missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
+            paths = chunks[cid]["write_allowlist"]
+            if missing or not all((cand_dir / p).exists() for p in paths):
+                blocked[cid] = f"needs {', '.join(missing)}, which was not kept" if missing else "no file handed in"
+                events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
+                continue
+            cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
+                    "contract_hashes": ledger.hashes(chunks[cid].get("contract_ids", []))}
+            for f in cand["files"]:
+                events.emit("worker.wrote", actor=ns.author, chunk_id=cid, payload=f)
+            v = gate.check(profile_dir, cid, cand, profile_dir / "cases.jsonl", run_dir, attempt_id=f"{cid}:{ns.author}-1",
+                           current_contract_hashes=ledger.hashes(), events=events, overlay=integ.files_of(chunks[cid].get("depends_on", [])))
+            if v.accepted:
+                v = integ.integrate(cid, cand)
+            if not v.accepted:
+                blocked[cid] = v.status
+                events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": f"{v.status}: {v.detail[:200]}"})
+    events.emit("run.finished", actor="scheduler", payload={"profile": profile["profile"], "accepted": list(integ.accepted), "blocked": blocked,
+                                                             "stale": [], "exportable": not blocked, "decisions": [], "accepted_tree": integ.tree_hash()})
+    if integ.accepted and profile.get("locked_cases"):
+        locked_evaluate(run_dir, profile_dir)
+    if sys.stdout.isatty() and not ns.no_watch:
+        from .view import watch as live_view
+        live_view(run_dir, replay=True, speed=2.0)
+    else:
+        status(argparse.Namespace(run_id=run_id))
+    return 0 if not blocked else 1
+
+
 # ───────────────────────── watch ─────────────────────────
 
 def watch(ns: argparse.Namespace) -> int:
@@ -193,6 +250,11 @@ def status(ns: argparse.Namespace) -> int:
     print(f"  {'chunk':<7}{'state':<36}{'turns':<7}{'asked':<7}{'gate rejects':<14}stale")
     for c, s in state.items():
         print(f"  {c:<7}{s['state'][:34]:<36}{s['attempts']:<7}{s['asked']:<7}{s['rejects']:<14}{s['stale']}")
+    hidden = [e for e in ev if e["type"] == "evaluation.locked"]
+    if hidden:
+        got, want = (sum(e["payload"]["cases"].get(k, 0) for e in hidden) for k in ("passed", "expected"))
+        print(f"\n  Hidden test set (never shown to the author): {'PASS' if got == want else 'FAIL'}  {got}/{want} match the original"
+              + ("" if got == want else "   -> passed the visible cases, but is NOT a correct translation"))
     decisions = _jsonl(RUNS / ns.run_id / "decisions.jsonl")
     if decisions:
         d = decisions[-1]
@@ -311,6 +373,9 @@ def main() -> None:
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
     p.set_defaults(fn=run)
+    p = sub.add_parser("check", help="check a translation written by anyone with the same checker and hidden test set")
+    p.add_argument("profile_dir"); p.add_argument("candidate_dir"); p.add_argument("--author", default="outside")
+    p.add_argument("--run-id"); p.add_argument("--no-watch", action="store_true"); p.set_defaults(fn=check)
     p = sub.add_parser("watch"); p.add_argument("run_id"); p.add_argument("--replay", action="store_true", help="play a finished run back")
     p.add_argument("--speed", type=float, default=1.0); p.set_defaults(fn=watch)
     p = sub.add_parser("status"); p.add_argument("run_id"); p.set_defaults(fn=status)
