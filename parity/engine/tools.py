@@ -17,6 +17,7 @@ from pathlib import Path
 from ..framework.team import TEAM, MemberSpec, ToolSpec
 from . import gate
 from .contracts import ContractLedger, DecisionRejected
+from .domain import in_domain
 from .events import EventLog
 from .integrator import Integrator
 
@@ -142,6 +143,8 @@ class RunContext:
                          "corrects. If the worker simply made its own mistake, use no_decision.")
         parts.append(f"probe_source takes export (one of {sorted({e for c in self.chunks.values() for e in c['exports']})}) "
                      f"and inputs_json, a JSON array whose items are shaped like: {self._example_input(cid)}.\n"
+                     + (f"Only inputs inside this range have to match, and probes outside it are refused: {json.dumps(m['input_domain'])}. "
+                        "Two or three probe calls are enough; do not explore further.\n" if m.get("input_domain") else "") +
                      f"contract_id must be one of {m['contract_ids']}. Finish by calling submit_ruling.")
         return "\n\n".join(parts)
 
@@ -211,6 +214,13 @@ class RunContext:
             except json.JSONDecodeError as e:
                 return f"inputs_json is not valid JSON: {e}"
             inputs = (inputs if isinstance(inputs, list) else [inputs])[:8]
+            owner = next((c for c, m in ctx.chunks.items() if export in m.get("exports", [])), None)
+            if owner and ctx.chunks[owner].get("input_domain"):          # only behavior inside the declared range matters
+                refused = [f"{json.dumps(v)}: {why}" for v in inputs if isinstance(v, dict) and (why := ctx.outside_domain(owner, v))]
+                inputs = [v for v in inputs if isinstance(v, dict) and not ctx.outside_domain(owner, v)]
+                if not inputs:
+                    return ("Every input was outside the declared input range, which is all that has to match. Allowed: "
+                            f"{json.dumps(ctx.chunks[owner]['input_domain'])}. Refused: {refused[:3]}")
             cases = [{"schema_version": 1, "case_id": f"probe-{i}", "chunk_id": None, "export": export, "input": v}
                      for i, v in enumerate(inputs)]
 
@@ -252,13 +262,9 @@ class RunContext:
     def outside_domain(self, cid: str, value: dict) -> str:
         """Why an input is outside the chunk's declared input domain ('' if it is inside). Plain code, not the tester's opinion."""
         for key, rule in (self.chunks[cid].get("input_domain") or {}).items():
-            x = value.get(key)
-            if isinstance(x, bool) or (("min" in rule or "max" in rule) and not isinstance(x, (int, float))):
-                return f"{key} must be a number"
-            if "min" in rule and x < rule["min"] or "max" in rule and x > rule["max"]:
-                return f"{key}={x} is outside [{rule.get('min', '-inf')}, {rule.get('max', 'inf')}]"
-            if "max_len" in rule and (not hasattr(x, "__len__") or len(x) > rule["max_len"]):
-                return f"{key} is longer than {rule['max_len']}"
+            why = in_domain(rule, value.get(key))
+            if why:
+                return f"{key}={json.dumps(value.get(key))} {why}"
         return ""
 
     def tester_query(self, cid: str, candidate: dict) -> str:

@@ -15,3 +15,6 @@ tests/flow_fixture/frozen.lock.json
 
 # Flash backups: 4MB images containing badge PII (contacts, identity, upload token). Never commit.
 badge/backup/
+
+# Projects made by `parity new` (they contain a copy of the library being migrated) and its downloads.
+projects/

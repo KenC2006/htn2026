@@ -24,6 +24,7 @@ console = Console()
 ACCENT = picker.ACCENT
 
 COMMANDS = [
+    ("/new <code>", "start from real code: a .py file, a folder, or a module name like humanize.number"),
     ("/run", "migrate the project with the agent team"),
     ("/check <folder> [name]", "check a translation someone else wrote"),
     ("/runs", "recent runs"),
@@ -141,6 +142,44 @@ def choose_mode(state: dict, word: str = "") -> None:
     console.print(Text.assemble(("  mode  ", "#00e0c4"), (f"{src} → {tgt}", "bold"), (f"  ·  {_project_line(folder).split('  ·  ', 1)[1]}", "default")))
 
 
+def new_project(state: dict, args: list[str]) -> None:
+    """/new <file | folder | module name>: scan real code, tick the functions to migrate, build the project."""
+    import re
+    from .newproject import create
+    from .scan_python import scan
+    if not args:
+        console.print("  what code?  [dim]a .py file, a folder, or a module name, e.g.[/dim]  /new humanize.number")
+        return
+    try:
+        source = cli.find_source(args[0])
+        functions = scan(source)
+    except SystemExit as e:
+        console.print(f"[red]{e.code}[/red]")
+        return
+    except SyntaxError as e:
+        console.print(f"[red]cannot read that as Python: {e}[/red]")
+        return
+    if not functions:
+        console.print("  no functions found there")
+        return
+    can = [f for f in functions if f.ok]
+    console.print(Text.assemble(("  scanned ", "dim"), (str(source), "default"), (f"   {len(can)} of {len(functions)} functions can be migrated", "bold")), highlight=False)
+    options = [(f"{f.name}({', '.join(p.name for p in f.params)})", "" if f.ok else f"cannot: {f.reason}", f.ok) for f in functions]
+    ticked = picker.pick_many(console, "Which functions? (ones that cannot be migrated are greyed out, with the reason)", options,
+                              {i for i, f in enumerate(functions) if f.ok and not f.name.startswith("_")})
+    if not ticked:
+        return
+    name = re.sub(r"[^a-z0-9]+", "-", args[0].replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+    try:
+        project = create(source, name, [functions[i].name for i in ticked], say=lambda m: console.print(f"  {m}", style="dim", highlight=False))
+    except SystemExit as e:
+        console.print(f"[red]{e.code}[/red]")
+        return
+    state["project"] = str(project)
+    console.print(Text.assemble(("  mode  ", ACCENT), (_project_line(project), "default")))
+    console.print("  [dim]/run to migrate it[/dim]")
+
+
 MODELS = [("qwen/qwen3-coder-next", "$0.12 in / $0.80 out per million tokens  ·  fast, cheap"),
           ("deepseek/deepseek-v4.1-flash", "$0.15 / $0.60  ·  untested here"),
           ("moonshotai/kimi-k2.7-code", "$0.71 / $3.21  ·  reasoning model, slower"),
@@ -235,7 +274,7 @@ def banner(state: dict, animate: bool = False) -> None:
         console.print(Text.assemble((f"  {label:<9}", "#00e0c4"), (value, "default")), highlight=False)
     console.print()
     hint = Text("  ")
-    for name, what in (("/run", "migrate"), ("/mode", "switch languages"), ("/check", "test someone else's translation"), ("/help", "more")):
+    for name, what in (("/new", "pick code to migrate"), ("/run", "migrate"), ("/mode", "switch languages"), ("/check", "test someone else's translation"), ("/help", "more")):
         hint.append(name, style="bold").append(f" {what}     ", style="dim")
     console.print(hint)
     console.print()
@@ -297,6 +336,8 @@ def handle(line: str, state: dict) -> bool:
     elif cmd == "clear":
         console.clear()
         banner(state)
+    elif cmd == "new":
+        new_project(state, args)
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
     elif cmd == "use":

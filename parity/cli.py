@@ -2,6 +2,7 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
+  new <file|folder|module>    make a project from real Python code: finds the functions that can be migrated, builds inputs and the Rust scaffold
   run <profile_dir> [--resume --run-id X]   migrate with the agent team; --resume continues an interrupted run
   check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
@@ -15,6 +16,7 @@ import argparse
 import difflib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -125,6 +127,59 @@ def scan(ns: argparse.Namespace) -> int:
     print(f"  Limits: max 2 parallel workers, {max(m.get('limits', {}).get('attempts', 2) for m in chunks.values())} attempts per chunk")
     print("\n  " + ("Scope is valid." if not problems else "PROBLEMS:\n    " + "\n    ".join(problems)))
     return 1 if problems else 0
+
+
+# ───────────────────────── new ─────────────────────────
+
+def find_source(what: str) -> Path:
+    """A path, or the name of an installed module (humanize.number). Unknown names are downloaded from PyPI into projects/_downloads."""
+    if Path(what).exists():
+        return Path(what).resolve()
+    import importlib.util
+    top = what.split(".")[0]
+    try:
+        spec = importlib.util.find_spec(what)
+    except (ImportError, ValueError):
+        spec = None
+    if spec is None or not spec.origin or not spec.origin.endswith(".py"):
+        dest = ROOT / "projects" / "_downloads"
+        if not (dest / top).exists() and not (dest / f"{top}.py").exists():
+            print(f"downloading {top} from PyPI…")
+            got = subprocess.run([sys.executable, "-m", "pip", "download", top, "--no-deps", "--only-binary", ":all:", "-d", str(dest / "_wheels"), "-q"],
+                                 capture_output=True, text=True)
+            if got.returncode != 0:
+                sys.exit(f"cannot find {what} as a file, an installed module, or on PyPI:\n{got.stderr[-400:]}")
+            import zipfile
+            for wheel in (dest / "_wheels").glob("*.whl"):
+                zipfile.ZipFile(wheel).extractall(dest)
+        parts = what.split(".")
+        base = dest.joinpath(*parts)
+        for cand in (base.with_suffix(".py"), base / "__init__.py", base):
+            if cand.exists():
+                return cand.parent if cand.name == "__init__.py" and len(parts) == 1 else cand
+        sys.exit(f"downloaded {top}, but it has no module {what}")
+    origin = Path(spec.origin)
+    return origin.parent if origin.name == "__init__.py" and "." not in what else origin
+
+
+def new(ns: argparse.Namespace) -> int:
+    from .newproject import create
+    from .scan_python import scan
+    source = find_source(ns.source)
+    functions = scan(source)
+    can = [f for f in functions if f.ok]
+    print(f"{source}\n  {len(can)} of {len(functions)} functions can be migrated\n")
+    for f in functions:
+        sig = ", ".join(f"{p.name}: {p.type or '?'}" for p in f.params)
+        print(f"  {'yes' if f.ok else 'no '}  {f.name}({sig})" + (f"\n        cannot: {f.reason}" if f.reason else ""))
+    if ns.list or not can:
+        return 0 if can else 1
+    chosen = [n.strip() for n in ns.functions.split(",")] if ns.functions else None
+    name = ns.name or re.sub(r"[^a-z0-9]+", "-", ns.source.replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+    print()
+    create(source, name, chosen, use_ai=not ns.no_ai)
+    print(f"\nNext: python -m parity run projects/{name}")
+    return 0
 
 
 # ───────────────────────── run ─────────────────────────
@@ -398,6 +453,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)
     p = sub.add_parser("scan"); p.add_argument("profile_dir"); p.set_defaults(fn=scan)
+    p = sub.add_parser("new", help="make a project from real Python code: a file, a folder, or a module name such as humanize.number")
+    p.add_argument("source"); p.add_argument("--name"); p.add_argument("--functions", help="comma-separated; default: every public function that qualifies")
+    p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
+    p.set_defaults(fn=new)
     p = sub.add_parser("run"); p.add_argument("profile_dir")
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
