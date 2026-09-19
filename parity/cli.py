@@ -492,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
     p.set_defaults(fn=new)
     p = sub.add_parser("run"); p.add_argument("profile_dir", nargs="?", help="project folder or name; default: the one made most recently here")
-    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
+    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=1500000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
     p.add_argument("--escalate", help="stronger models, comma separated: a function that runs out of tries moves up to the next one "
