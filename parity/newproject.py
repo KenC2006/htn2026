@@ -315,7 +315,7 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
                 kinds = sorted({type(o["value"]).__name__ for o in ok})
                 skipped[f.name] = f"returns different kinds of value for different inputs ({', '.join(kinds)}), which one Rust type cannot hold"
             else:
-                kept.append({"f": f, "rules": rules, "returns": shape, "errors": errors, "dev": dev, "hidden": hidden})
+                kept.append({"f": f, "rules": rules, "returns": shape, "errors": errors, "dev": dev, "hidden": hidden, "seen": first})
     if not kept:
         shutil.rmtree(project)
         raise SystemExit("no function survived being run:\n" + "\n".join(f"  {k}: {v}" for k, v in skipped.items()))
@@ -359,13 +359,22 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
             notes += "Call the already migrated " + ", ".join(f"`crate::{rust_name(c)}::{rust_name(c)}`" for c in f.calls if c in by_name) + " instead of re-implementing them. "
         if private:
             notes += f"The helpers {', '.join(private)} are shown with the source; port them as private functions inside your file. "
-        notes += "Text must match the original character for character, numbers exactly."
+        notes += ("Text must match the original character for character, numbers exactly. "
+                  "The signature is fixed and every input is inside the declared input range, so handle nothing beyond it. "
+                  "The original runs with nothing configured: default locale, no translations loaded, no environment variables, no earlier calls. ")
+        shown = []
+        for c in k["dev"]:
+            o = k["seen"][c["case_id"]]
+            result = json.dumps(o["value"], ensure_ascii=False) if o["status"] == "ok" else f"raises {o['error_code']}"
+            if len(shown) < 8 and (len(shown) < 4 or result not in [r for _, r in shown]):
+                shown.append((json.dumps(c["input"], ensure_ascii=False), result))
+        notes += "What the original really returns: " + "; ".join(f"{i} -> {r}" for i, r in shown) + "."
         example = k["dev"][0]["input"]
         for c in k["dev"] + k["hidden"]:
             c["chunk_id"] = k["id"]
         (project / "chunks" / f"{k['id']}.json").write_text(json.dumps({
             "schema_version": 1, "chunk_id": k["id"], "profile": name, "source_files": [f"view/{f.name}.py"], "exports": [f.name],
-            "write_allowlist": [f"target/{mod}.rs"], "depends_on": deps, "worker_notes": notes, "contract_ids": ["same-behavior"],
+            "write_allowlist": [f"target/{mod}.rs"], "depends_on": deps, "worker_notes": notes, "contract_ids": [f"behavior-{f.name}"],
             "limits": {"attempts": 3, "verify_seconds_per_attempt": 180}, "example_input": example, "input_domain": k["rules"],
             "origin": {"module": f.module, "file": str(f.file.name), "line": f.lineno}}, indent=2) + "\n", encoding="utf-8", newline="\n")
 
@@ -373,11 +382,13 @@ def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: 
     (project / "harness" / "main.rs").write_text(templates.MAIN_RS_HEAD + mods + templates.MAIN_RS_TAIL.replace("%ARMS%", arms), encoding="utf-8", newline="\n")
     (project / "cases.jsonl").write_text("".join(json.dumps(c) + "\n" for k in order for c in k["dev"]), encoding="utf-8", newline="\n")
     (project / "locked" / "cases.jsonl").write_text("".join(json.dumps(c) + "\n" for k in order for c in k["hidden"]), encoding="utf-8", newline="\n")
-    (project / "contracts" / "same-behavior.json").write_text(json.dumps({
-        "schema_version": 1, "contract_id": "same-behavior", "version": 1,
-        "behavior": "For every input inside a function's declared input range, the Rust function returns exactly what the Python original returns: "
-                    "the same numbers, the same text character for character, and Err(<exception class name>) where the original raises.",
-        "guidance": []}, indent=2) + "\n", encoding="utf-8", newline="\n")
+    # one contract per piece: a ruling about one function must not make the others stale
+    for k in order:
+        (project / "contracts" / f"behavior-{k['f'].name}.json").write_text(json.dumps({
+            "schema_version": 1, "contract_id": f"behavior-{k['f'].name}", "version": 1,
+            "behavior": f"For every input inside the declared input range, the Rust `{k['f'].name}` returns exactly what the Python original returns: "
+                        "the same numbers, the same text character for character, and Err(<exception class name>) where the original raises.",
+            "guidance": []}, indent=2) + "\n", encoding="utf-8", newline="\n")
     (project / "profile.json").write_text(json.dumps({
         "schema_version": 1, "profile": name, "languages": {"source": "Python", "target": "Rust"},
         "run_source": ["python", "runners/source.py"], "run_target": ["python", "runners/target.py"],

@@ -39,21 +39,27 @@ async def _main(ns: argparse.Namespace) -> int:
     journal = runs / "_journals" / f"{Path(ns.script).stem}.{tag or 'run'}.{int(time.time())}.journal.json"  # fresh per process; resume is done by the engine from receipts
     backend = TeamBackend()
     spend0 = _spend()
-    result = await run_workflow(
-        ns.script,
-        args=wf_args,
-        backend=backend,
-        journal_path=str(journal),
-        resume=str(journal) if ns.resume and journal.exists() else None,
-        log_sink=lambda m: print(m, flush=True),
-        workflow_budget=BudgetLedger(total=ns.token_limit) if ns.token_limit else None,
-    )
+    from .team import TEAM
+    stopped = None
+    try:
+        result = await run_workflow(
+            ns.script,
+            args=wf_args,
+            backend=backend,
+            journal_path=str(journal),
+            resume=str(journal) if ns.resume and journal.exists() else None,
+            log_sink=lambda m: print(m, flush=True),
+            workflow_budget=BudgetLedger(total=ns.token_limit) if ns.token_limit else None,
+        )
+    except Exception as e:  # most often the token limit; kept pieces are on disk and `--resume` continues from them
+        result, stopped = None, f"{type(e).__name__}: {e}"
+        print(f"run stopped early: {stopped}", flush=True)
     await asyncio.sleep(6)  # OpenRouter's usage counter lags the last calls by a few seconds
     spend = _spend()
-    from .team import TEAM
-    print(json.dumps({"result": result, "calls": backend.calls, "member_restarts": TEAM.restarts,
+    tokens = {m: TEAM.tokens(m) for m in TEAM.specs if TEAM.tokens(m)}
+    print(json.dumps({"result": result, "stopped": stopped, "tokens_by_member": tokens, "calls": backend.calls, "member_restarts": TEAM.restarts,
                       "cost_usd": None if None in (spend, spend0) else round(spend - spend0, 6)}, indent=2, default=str))
-    return 0
+    return 1 if stopped else 0
 
 
 def main() -> None:

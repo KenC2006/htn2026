@@ -12,13 +12,27 @@ Then `/run` to migrate, `/mode` to switch language pair, `/check <folder>` to te
 The same commands without the console: `python -m parity run tests/flow_fixture`, `python -m parity check ...`, `python -m parity --help`.
 No activate step is needed: the command switches to the project's Python and loads `env/secrets.env` by itself.
 
+## Migrate your own Python code
+
+    python -m parity new <file.py | folder | module name>      (or /new in the console)
+
+A module that is not installed is downloaded from PyPI into `projects/_downloads/`. What happens, in order:
+
+1. A plain-code scan lists every function as migratable or not, with the reason (files, clock, network, randomness, shared state, `*args`, decorators and generators are refused). Helpers, lookup tables and imports inside the same package travel with the function.
+2. You tick the functions you want (`--functions a,b` on the command line, `--list` to only see the scan).
+3. Input types and ranges come from type hints, else the model suggests them (`--no-ai` for defaults). Suggestions are never trusted.
+4. The original is run on generated inputs, twice. That decides the Rust return type, whether it becomes a `Result` (the original raises in range), and whether the function is deterministic. A function that fails is skipped with the reason.
+5. `projects/<name>/` is written: a copy of the original, one piece per function with its own contract, 40 test inputs and 100 hidden inputs each, runners, and a crate-free Rust harness that is confirmed to compile.
+
+Then `python -m parity run projects/<name>`. `projects/` is git-ignored because it holds a copy of the library. Python to Rust only for now.
+
 ## Set up a fresh clone
 
 1. Python 3.11+ and `rustc` on PATH.
 2. `python -m venv .venv-swarm`, then `.venv-swarm\Scripts\pip install workswarm==0.2.6`
 3. `cp env/secrets.env.example env/secrets.env` and fill in the OpenRouter key (get it from Ken by DM; never commit it).
 4. `python -m parity doctor` checks all of the above and the remaining budget.
-5. `python -m unittest tests.test_gate tests.test_flow` (no model calls, about a minute).
+5. `python -m unittest tests.test_gate tests.test_flow tests.test_new` (no model calls, about a minute).
 
 Everything stays inside this folder: WorkSwarm's state goes to `.jiuwenswarm/`, runs to `runs/`.
 

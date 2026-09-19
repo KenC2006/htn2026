@@ -37,3 +37,5 @@ Not agents, on purpose (deterministic code in `parity/engine/`): scheduler, cont
 ## Reuse
 
 `workflows/migrate.py` and the engine are profile-agnostic. A new language pair is a folder: source, scaffold with placeholders, two runner commands, cases, chunk manifests, contracts (`CONTRACTS.md`). No engine change.
+
+For Python to Rust that folder is generated: `python -m parity new <file | folder | module>` scans the code with plain code (`parity/scan_python.py`), runs the original to learn return types, errors and determinism, and writes the project (`parity/newproject.py`, `parity/templates.py`). The model only suggests input ranges, and every suggestion is tried on the real code before it is used.
