@@ -74,17 +74,6 @@ PLANNER_PROMPT = (
     "your plan; if it is rejected, fix it and submit again."
 )
 
-SOLO_PROMPT = (
-    "You are a single migration agent. You port code chunk by chunk to the target language, preserving behavior exactly. "
-    "You cannot run tests; an independent verifier will. Tools:\n"
-    "- probe_source(export, inputs_json): run the ORIGINAL implementation on inputs you choose. Use it whenever the source "
-    "relies on language semantics that may differ in the target (integer division, modulo, overflow, sort stability, "
-    "string ordering, empty inputs). Guessing wastes one of your two attempts per chunk.\n"
-    "- check_compile(chunk_id, path, content): build your file with the real compiler. Once it says BUILD_OK, submit.\n"
-    "- submit_candidate(chunk_id, path, content, notes): hand in one finished file. The ONLY way to hand in work.\n"
-    "Write only the files you are allowed to write."
-)
-
 DECISION_SCHEMA = {
     "type": "object",
     "properties": {
@@ -396,30 +385,6 @@ class RunContext:
                     break
                 done |= set(ready)
         return problems
-
-    def register_solo(self) -> None:
-        """Single-agent baseline: ONE member does every chunk and is its own steward.
-
-        Same model as the team's workers, same compile tool, same access to the original via
-        probe_source, same gate, attempts and token cap. What it lacks is only what the team adds:
-        a second specialist, parallelism, and a shared ledger.
-        """
-        ctx, member = self, "solo"
-
-        async def check_compile(chunk_id: str, path: str, content: str) -> str:
-            if chunk_id not in ctx.chunks:
-                return f"unknown chunk_id; use one of {sorted(ctx.chunks)}"
-            return await ctx.tool(ctx.worker_tools(member, chunk_id), "check_compile")(path, content)
-
-        async def submit_candidate(chunk_id: str, path: str, content: str, notes: str = "") -> str:
-            return await ctx.tool(ctx.worker_tools(member, chunk_id), "submit_candidate")(path, content, notes)
-
-        probe = self.tool(self.steward_tools(actor=member), "probe_source")
-        TEAM.register(MemberSpec(member, "solo", SOLO_PROMPT, max_iterations=14, tools=[
-            ToolSpec("probe_source", "Run the frozen ORIGINAL implementation of one export on up to 8 inputs you choose. inputs_json is a JSON ARRAY of inputs.", probe),
-            ToolSpec("check_compile", "Build ONE file with the real target compiler. Returns BUILD_OK or the compiler errors. Runs no tests.", check_compile),
-            ToolSpec("submit_candidate", "Hand in ONE finished file for verification. The only way to hand in work.", submit_candidate)],
-            submit_tools={"submit_candidate"}, is_done=lambda: ctx.handed_in(member)))
 
     @staticmethod
     def tool(specs: list[ToolSpec], name: str):

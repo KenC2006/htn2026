@@ -2,7 +2,7 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
-  run <profile_dir> [--solo] [--resume --run-id X]   team migration (or single-agent baseline); --resume continues a run
+  run <profile_dir> [--resume --run-id X]   migrate with the agent team; --resume continues an interrupted run
   check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
   status <run_id>             progress table rebuilt from the event log
@@ -130,8 +130,8 @@ def scan(ns: argparse.Namespace) -> int:
 # ───────────────────────── run ─────────────────────────
 
 def run(ns: argparse.Namespace) -> int:
-    run_id = ns.run_id or datetime.now().strftime(("solo-" if ns.solo else "run-") + "%m%d-%H%M%S")
-    script = ROOT / "workflows" / ("baseline.py" if ns.solo else "migrate.py")
+    run_id = ns.run_id or datetime.now().strftime("run-%m%d-%H%M%S")
+    script = ROOT / "workflows" / "migrate.py"
     if (RUNS / run_id / "events.jsonl").exists() and not ns.resume:
         sys.exit(f"run {run_id} already exists. Continue it with --resume, or choose another --run-id.")
     args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id, "resume": bool(ns.resume)})
@@ -380,7 +380,7 @@ def export(ns: argparse.Namespace) -> int:
               "- Candidates run as ordinary local processes without the original source or credentials; not a hardened sandbox.", "",
               "## Reproduce", "", "```", ". env/activate-swarm.sh",
               f"python -m parity scan {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
-              f"python -m parity run {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}{' --solo' if start.get('mode') == 'single-agent' else ''}",
+              f"python -m parity run {os.path.relpath(profile_dir, ROOT).replace(os.sep, '/')}",
               "```", ""]
     (out / "report.md").write_text("\n".join(lines), encoding="utf-8", newline="\n")
     print(f"{'Exported' if exportable else 'NOT EXPORTABLE (report still written, labeled as such)'}: {out}")
@@ -398,7 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)
     p = sub.add_parser("scan"); p.add_argument("profile_dir"); p.set_defaults(fn=scan)
-    p = sub.add_parser("run"); p.add_argument("profile_dir"); p.add_argument("--solo", action="store_true")
+    p = sub.add_parser("run"); p.add_argument("profile_dir")
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")

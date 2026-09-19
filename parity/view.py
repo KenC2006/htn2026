@@ -20,7 +20,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-ACTOR_STYLE = {"tester": "red", "planner": "magenta", "expert": "yellow", "checker": "cyan", "worker": "blue", "solo": "blue", "run": "white"}
+ACTOR_STYLE = {"tester": "red", "planner": "magenta", "expert": "yellow", "checker": "cyan", "worker": "blue", "run": "white"}
 REASONS = {"REJECTED_BUILD": "does not compile", "REJECTED_BEHAVIOR": "wrong output", "REJECTED_POLICY": "touched a file it may not",
            "REJECTED_INTEGRITY": "test files were changed", "REJECTED_TEST": "missing or crashed cases",
            "REJECTED_INTEGRATION": "breaks pieces already kept"}
@@ -58,11 +58,7 @@ def _only_function(text: str, names: list[str]) -> str:
 
 def _probe_lines(p: dict) -> str:
     try:
-        raw = p.get("result") or "[]"
-        try:
-            rows = json.loads(raw)
-        except json.JSONDecodeError:          # older runs cut the result off mid-row
-            rows = json.loads(raw[: raw.rindex("}, {") + 1] + "]")
+        rows = json.loads(p.get("result") or "[]")
         calls = [f"{p.get('export')}({', '.join(f'{k}={v}' for k, v in r['input'].items())}) = "
                  f"{r['value'] if r['status'] == 'ok' else r.get('error_code') or r['status']}" for r in rows]
         return "   ".join(calls[:4]) + (f"   (+{len(calls) - 4} more)" if len(calls) > 4 else "")
@@ -130,7 +126,7 @@ class Board:
         t, p, c = e["type"], e["payload"], e.get("chunk_id") or ""
         self.now = _ts(e)
         piece = self.pieces.get(c)
-        worker = "one agent" if self.mode == "single-agent" else self.mode[9:] if self.mode.startswith("outside: ") else f"worker {c}"
+        worker = self.mode[9:] if self.mode.startswith("outside: ") else f"worker {c}"
         if t == "run.started":
             self.t0, self.mode = _ts(e), p.get("mode", "team")
             try:
@@ -144,7 +140,7 @@ class Board:
                     self.pieces[cid] = _piece(", ".join(m["exports"]), m.get("depends_on", []), src, src_path)
             except Exception:  # noqa: BLE001
                 self.pieces = {cid: _piece() for cid in p.get("chunks", [])}
-            self.say(e, "run", "run", f"{len(self.pieces)} pieces to rewrite" + (" with ONE agent" if self.mode == "single-agent" else ""))
+            self.say(e, "run", "run", f"{len(self.pieces)} pieces to rewrite")
         elif t == "tool.read_source":
             self.say(e, "planner", "planner", f"reads the source of {c}")
         elif t == "plan.accepted":
@@ -152,7 +148,7 @@ class Board:
             self.say(e, "planner", "planner", f"plan: {order}")
         elif t == "plan.fallback":
             self.say(e, "planner", "planner", "no usable plan, using the declared order")
-        elif t == "planner.question" or (t == "worker.question" and e["actor"] == "planner"):
+        elif t == "planner.question":
             self.say(e, "planner", "planner", f"asks the expert before anyone starts: {_short(p.get('question'), 170)}")
         elif t == "worker.question":
             if piece:
@@ -160,8 +156,7 @@ class Board:
             self._set(piece, "asking the expert", "yellow", "waiting for the expert's answer…", "yellow")
             self.say(e, "worker", worker, f"asks the expert: {_short(p.get('question'), 170)}")
         elif t == "tool.probe_source":
-            who = "one agent" if self.mode == "single-agent" else "expert"
-            self.say(e, "expert" if who == "expert" else "solo", who, f"runs the ORIGINAL code: {_probe_lines(p)}")
+            self.say(e, "expert", "expert", f"runs the ORIGINAL code: {_probe_lines(p)}")
         elif t == "decision.recorded":
             self.rules.append(p)
             self.say(e, "expert", "expert", f"NEW RULE {p['decision_id']} for {', '.join(p['affected_chunks'])}: {_short(p['ruling'], 190)}")
@@ -231,11 +226,6 @@ class Board:
         elif t == "chunk.accepted":
             if piece:
                 piece["cases"] = f"{p.get('cases', {}).get('passed', '?')}/{p.get('cases', {}).get('expected', '?')}"
-                if not piece["code"]:                  # runs recorded before code was put in the events
-                    for f in sorted((self.run_dir / "accepted").rglob("*")):
-                        if f.is_file() and piece["what"].split(",")[0] in f.read_text(encoding="utf-8", errors="replace"):
-                            self._code(piece, f.name, f.read_text(encoding="utf-8", errors="replace"))
-                            break
             self._set(piece, "KEPT ✓", "bold green", f"✓ same output as the original on {piece['cases'] if piece else ''} cases", "bold green")
             self.say(e, "checker", "checker", f"✓ {c} KEPT. {p.get('detail')} with everything kept so far")
         elif t == "chunk.revalidated":
@@ -284,7 +274,7 @@ class Board:
 
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
-        who = self.mode[9:] if self.mode.startswith("outside: ") else "one agent" if self.mode == "single-agent" else "agent team"
+        who = self.mode[9:] if self.mode.startswith("outside: ") else "agent team"
         head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  {int(max(self.now - self.t0, 0))}s  ·  ", "dim"),
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),
                              (f"  ·  hidden test set {self.hidden}" if self.hidden else "", "bold red" if "FAIL" in self.hidden else "green"))

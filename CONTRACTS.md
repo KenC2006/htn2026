@@ -38,7 +38,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
     python -m unittest tests.test_gate tests.test_flow
     python -m parity doctor                                   # toolchains, key, budget
     python -m parity scan tests/flow_fixture                  # validates YOUR profile folder too, costs nothing
-    python -m parity run tests/flow_fixture --run-id try-1    # team run (add --solo for the single-agent baseline)
+    python -m parity run tests/flow_fixture --run-id try-1    # the agent team migrates it, live
     python -m parity status try-1
     python -m parity export try-1                             # runs/try-1/export/: migration.patch, report.md, receipts.json
     python env/show-run.py try-1                               # full event trace

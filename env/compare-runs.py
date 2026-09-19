@@ -1,4 +1,4 @@
-"""Summarise runs side by side from their event logs: python env/compare-runs.py rel-1 rel-2 solo-1 ..."""
+"""Summarise runs side by side from their event logs: python env/compare-runs.py run-1 run-2 ..."""
 import json, sys
 from datetime import datetime
 from pathlib import Path

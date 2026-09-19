@@ -144,7 +144,15 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
                 contract_hashes=dict(current_contract_hashes or {}),
                 candidate_hash=_sha(json.dumps(files, sort_keys=True).encode()))
 
+    sources: dict = {}   # workspace path -> the files it held before anything was built
+
     def done(status: str, stage: str, detail: str = "") -> Verdict:
+        for root, before in sources.items():          # drop build outputs (executables, debug files): ~1 MB per check otherwise
+            for f in sorted(root.rglob("*"), reverse=True):
+                if f.is_file() and f not in before:
+                    f.unlink(missing_ok=True)
+                elif f.is_dir() and not any(f.iterdir()):
+                    f.rmdir()
         if fail_status and status in ("REJECTED_BUILD", "REJECTED_TEST", "REJECTED_BEHAVIOR"):
             detail, status = f"{status}: {detail}", fail_status
         v.status, v.stage, v.detail = status, stage, detail
@@ -226,6 +234,7 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
         dest = ws / f["path"]
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(f["content"], encoding="utf-8", newline="\n")
+    sources[ws] = {f for f in ws.rglob("*") if f.is_file()}
 
     # Only this chunk's cases. Inputs go into the workspace; expected outputs never do.
     wanted = set(case_chunks or [chunk_id])

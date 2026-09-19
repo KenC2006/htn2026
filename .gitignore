@@ -3,7 +3,7 @@
 .overlay-pydantic2/
 .jiuwenswarm/
 .playwright-mcp/
-target/
+/target/
 env/secrets.env
 __pycache__/
 *.pyc
@@ -12,3 +12,6 @@ logs/
 tests/gate_fixture/frozen.lock.json
 __pycache__/
 tests/flow_fixture/frozen.lock.json
+
+# Flash backups: 4MB images containing badge PII (contacts, identity, upload token). Never commit.
+badge/backup/
