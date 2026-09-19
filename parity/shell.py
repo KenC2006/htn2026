@@ -33,9 +33,13 @@ STATE = RUNS / ".console.json"
 console = Console()
 ACCENT = picker.ACCENT
 
+MODES = {"python": ("Python → Rust", ".py files, folders and installed modules", (".py",)),
+         "c": ("C → Rust", ".c files and folders of them; the original is compiled with gcc", (".c", ".h"))}
+
 COMMANDS = [
-    ("/check <file.py>", "which functions in it can be migrated, and why not for the rest"),
-    ("/migrate <file.py> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails"),
+    ("/mode [python|c]", "what you are migrating: Python → Rust or C → Rust"),
+    ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
+    ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails"),
     ("/verify <folder> [name]", "test a translation someone else wrote, no agents"),
     ("/runs", "recent runs"),
     ("/status [run]", "result of a run"),
@@ -67,6 +71,32 @@ def _project_line(folder: Path) -> str:
         return f"{lang.get('source', '?')} → {lang.get('target', '?')}  ·  {len(chunks)} pieces  ·  {_rel(folder)}"
     except Exception:  # noqa: BLE001
         return f"(no project at {folder}; choose one with /use <folder>)"
+
+
+def choose_mode(state: dict, word: str = "") -> None:
+    keys = list(MODES)
+    if word.lower() in ("py", "python", "c"):
+        state["mode"] = "c" if word.lower() == "c" else "python"
+    else:
+        i = picker.pick(console, "What are you migrating?", [(MODES[k][0], MODES[k][1], True) for k in keys], keys.index(state.get("mode", "python")))
+        if i is None:
+            return
+        state["mode"] = keys[i]
+    console.print(Text.assemble(("  mode  ", ACCENT), (MODES[state["mode"]][0], "default")))
+
+
+def _fits_mode(state: dict, what: str) -> bool:
+    """/check and /migrate work on the language of the current mode. Code in the other language is refused, with the way out."""
+    from .newproject import is_c
+    path = Path(what)
+    if not path.exists():
+        return True                                   # a module name: Python
+    found = "c" if is_c(path) else "python"
+    if found == state.get("mode", "python"):
+        return True
+    console.print(f"  that is {MODES[found][0].split()[0]} code and the mode is {MODES[state.get('mode', 'python')][0]}.  "
+                  f"[bold]/mode {found}[/bold] switches it.")
+    return False
 
 
 def _run_rows(limit: int = 10) -> list[dict]:
@@ -198,7 +228,8 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print(Text.assemble(("  old code ", "dim"), ("≡", "bold #00e0c4"), (" new code", "dim"),
                                 ("    AI rewrites it. Parity proves it still works the same.", "italic dim")))
     console.print()
-    rows = [("mode", _project_line(Path(state["project"]))),
+    rows = [("mode", MODES[state.get("mode", "python")][0]),
+            ("project", _project_line(Path(state["project"]))),
             ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
             ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}")]
     for label, value in rows:
@@ -261,8 +292,12 @@ def handle(line: str, state: dict) -> bool:
         return False
     if cmd in ("help", "?"):
         show_help()
+    elif cmd in ("mode", "modes"):
+        choose_mode(state, " ".join(args))
+    elif cmd in ("check", "migrate") and args and not _fits_mode(state, args[0]):
+        pass
     elif cmd == "check":
-        if args and Path(args[0]).is_dir() and not (Path(args[0]) / "__init__.py").exists():
+        if args and Path(args[0]).is_dir() and not (Path(args[0]) / "__init__.py").exists() and not any(Path(args[0]).glob("*.c")):
             console.print(f"  that is a folder. To test a translation: /verify {args[0]}")
         elif args:
             _call(["new", args[0], "--list"])
@@ -328,6 +363,7 @@ def shell() -> int:
     state = {"project": str(made[0].parent if made else ROOT / "tests" / "flow_fixture"), **_load()}
     if not (Path(state["project"]) / "profile.json").exists():
         state["project"] = str(ROOT / "tests" / "flow_fixture")
+    state.setdefault("mode", "c" if _project_line(Path(state["project"])).startswith("C ") else "python")
     console.clear()
     banner(state, animate=True)
     while True:
