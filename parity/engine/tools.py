@@ -35,6 +35,12 @@ WORKER_PROMPT = (
     "Follow every piece of contract guidance you are given. Write only the files you are allowed to write."
 )
 
+HINT_PROMPT = (
+    "You are the expert on a code-migration team. A worker's code was rejected: it does not compile, or it crashes. "
+    "You get the code and the error. Reply with a short, specific fix: which lines are wrong, why, and what to write instead. "
+    "At most 12 lines. Do not rewrite the whole file. Do not change what the function returns."
+)
+
 STEWARD_PROMPT = (
     "You are the contract steward of a code-migration team. Workers ask you how source behavior must be reproduced in "
     "the target language, and the scheduler sends you verifier counterexamples. You own the shared contracts' "
@@ -410,6 +416,8 @@ class RunContext:
         return next(t.func for t in specs if t.name == name)
 
     def register_team(self, steward_model: str | None) -> None:
+        # The expert again, without tools: it reads a compiler error and tells the worker how to fix it. It writes no code files.
+        TEAM.register(MemberSpec("expert-hint", "steward", HINT_PROMPT, model=steward_model, max_iterations=2, serial=True, fresh_each_turn=True))
         TEAM.register(MemberSpec("steward", "steward", STEWARD_PROMPT, model=steward_model, tools=self.steward_tools(),
                                  max_iterations=10, serial=True, fresh_each_turn=True, submit_tools={"submit_ruling"}))
         for cid in self.chunks:

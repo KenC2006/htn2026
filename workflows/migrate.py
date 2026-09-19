@@ -122,6 +122,8 @@ async def run(args):
     # steward settles the risks BEFORE any worker starts, so workers begin with guidance instead of going stale later.
     # Starting from a translation someone already wrote: it is checked first, and agents are only called for what fails.
     start_from = Path(args["start_from"]).resolve() if args.get("start_from") else None
+    # Stronger models, in order. A function only moves up to the next one after it ran out of tries on the one before.
+    escalate = [x.strip() for x in (args.get("escalate") or os.environ.get("ESCALATE_MODELS") or "").split(",") if x.strip() and x.strip().lower() != "none"]
 
     def given(cid: str) -> dict | None:
         paths = chunks[cid]["write_allowlist"]
@@ -189,7 +191,9 @@ async def run(args):
     async def settle(cid: str, prior: dict | None = None, stale_reason: str | None = None) -> dict | None:
         """Get one candidate through its own gate check. Returns it stamped with the contract hashes it was written under."""
         m = chunks[cid]
-        max_attempts = m.get("limits", {}).get("attempts", 2)
+        per_model = max_attempts = m.get("limits", {}).get("attempts", 2)
+        stronger = list(escalate)    # models this function has not been moved up to yet
+        hint = ""
 
         def stale_prompt(files: list, why: str) -> str:
             return (task_prompt(cid) + f"\n\nYour earlier candidate is STALE: {why}\nRe-read the contracts above. Return the "
@@ -211,7 +215,14 @@ async def run(args):
                 label = f"worker-{cid}-stale{stale_seq[cid]}"
             else:
                 if attempts[cid] >= max_attempts:
-                    break
+                    if not stronger or cid in blocked:
+                        break
+                    # Trying again with the same model gives the same wrong answer. A stronger one gets the function, with what failed.
+                    model = stronger.pop(0)
+                    TEAM.specs[f"worker-{cid}"].model = model
+                    TEAM.fresh(f"worker-{cid}")
+                    max_attempts += per_model
+                    events.emit("worker.escalated", actor="scheduler", chunk_id=cid, payload={"model": model})
                 attempts[cid] += 1
                 label = f"worker-{cid}-attempt{attempts[cid]}"
             member = f"worker-{cid}"
@@ -251,9 +262,16 @@ async def run(args):
                 decision = await consult_steward(cid, candidate, v)
                 if decision:
                     log(f"{cid}: decision {decision['decision_id']} -> affects {decision['affected_chunks']}")
+            hint = ""
+            if v.status in ("REJECTED_BUILD", "REJECTED_TEST"):
+                hint = str(await agent(f"Function: {m['exports']}\nError:\n{v.detail[:3000]}\n\nCode:\n{json.dumps(candidate['files'])[:12000]}",
+                                       label=f"hint-{cid}-{attempts[cid]}-{stale_seq[cid]}", options={"member": "expert-hint"}) or "")[:1500]
+                if hint:
+                    events.emit("expert.hint", actor="contract-steward", chunk_id=cid, payload={"hint": hint})
             prompt = (task_prompt(cid)  # includes any new guidance
                       + f"\n\nYour previous candidate was REJECTED: {v.status} at {v.stage}. {v.detail[:600]}\n"
-                      f"Counterexample: {json.dumps(v.counterexample)}\nPrevious files: {json.dumps(candidate['files'])}\nFix it.")
+                      f"Counterexample: {json.dumps(v.counterexample)}\nPrevious files: {json.dumps(candidate['files'])}\n"
+                      + (f"The expert read the error and says:\n{hint}\n" if hint else "") + "Fix it.")
             if cid in blocked:
                 break
         blocked.setdefault(cid, "ran out of tries")

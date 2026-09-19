@@ -213,6 +213,10 @@ class Board:
                 self._set(piece, "being written", "blue", "got the expert's answer", "yellow")
             if not p.get("decision_id"):
                 self.say(e, "expert", "expert", f"answers: {_short(p.get('answer'), 110)}")
+        elif t == "expert.hint":
+            self.say(e, "expert", "expert", f"reads the error and tells the worker: {_short(p.get('hint'), 110)}")
+        elif t == "worker.escalated":
+            self.say(e, "checker", "checker", f"{name} ran out of tries: a stronger model takes over ({p.get('model', '').split('/')[-1]})")
         elif t == "steward.consulted":
             self.say(e, "checker", "checker", f"asks the expert why {name} fails")
         elif t == "worker.started":

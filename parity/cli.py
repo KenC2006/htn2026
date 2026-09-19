@@ -191,6 +191,8 @@ def run(ns: argparse.Namespace) -> int:
     args = {"profile_dir": str(project_dir(ns.profile_dir)), "run_id": run_id, "resume": bool(ns.resume)}
     if ns.start_from:
         args["start_from"] = str(Path(ns.start_from).resolve())
+    if ns.escalate is not None:
+        args["escalate"] = ns.escalate or "none"
     args = json.dumps(args)
     RUNS.mkdir(parents=True, exist_ok=True)
     with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
@@ -479,6 +481,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
+    p.add_argument("--escalate", help="stronger models, comma separated: a function that runs out of tries moves up to the next one "
+                                      "(default: ESCALATE_MODELS in env/secrets.env; pass 'none' to turn it off)")
     p.add_argument("--start-from", help="folder with a translation someone already wrote: it is checked first, agents only fix what fails")
     p.set_defaults(fn=run)
     p = sub.add_parser("check", help="check a translation written by anyone with the same checker and hidden test set")
