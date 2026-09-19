@@ -73,6 +73,22 @@ def _project_line(folder: Path) -> str:
         return f"(no project at {folder}; choose one with /use <folder>)"
 
 
+def _language(folder: Path) -> str:
+    """'c' or 'python': what the project in this folder migrates from."""
+    return "c" if _project_line(Path(folder)).startswith("C ") else "python"
+
+
+def _follow_mode(state: dict) -> bool:
+    """The current project always matches the mode: the newest project made here in that language. False if there is none."""
+    mode = state.get("mode", "python")
+    if (Path(state["project"]) / "profile.json").exists() and _language(state["project"]) == mode:
+        return True
+    made = [f.parent for f in sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime) if _language(f.parent) == mode] if PROJECTS.exists() else []
+    if made:
+        state["project"] = str(made[0])
+    return bool(made)
+
+
 def choose_mode(state: dict, word: str = "") -> None:
     keys = list(MODES)
     if word.lower() in ("py", "python", "c"):
@@ -83,16 +99,10 @@ def choose_mode(state: dict, word: str = "") -> None:
             return
         state["mode"] = keys[i]
     console.print(Text.assemble(("  mode  ", ACCENT), (MODES[state["mode"]][0], "default")))
-    # the current project follows the mode: the newest one made here in that language, if there is one
-    want = MODES[state["mode"]][0].split()[0]
-    made = [f.parent for f in sorted(PROJECTS.glob("*/profile.json"), key=lambda f: -f.stat().st_mtime)
-            if _project_line(f.parent).startswith(want + " ")] if PROJECTS.exists() else []
-    if made and not _project_line(Path(state["project"])).startswith(want + " "):
-        state["project"] = str(made[0])
-    if _project_line(Path(state["project"])).startswith(want + " "):
+    if _follow_mode(state):
         console.print(Text.assemble(("  project  ", ACCENT), (_project_line(Path(state["project"])), "default")))
     else:
-        console.print(f"  [dim]no {want} project here yet: /check or /migrate a {MODES[state['mode']][2][0]} file[/dim]")
+        console.print(f"  [dim]no {MODES[state['mode']][0].split()[0]} project here yet: /check or /migrate a {MODES[state['mode']][2][0]} file[/dim]")
 
 
 def _fits_mode(state: dict, what: str) -> bool:
@@ -238,8 +248,9 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print(Text.assemble(("  old code ", "dim"), ("≡", "bold #00e0c4"), (" new code", "dim"),
                                 ("    AI rewrites it. Parity proves it still works the same.", "italic dim")))
     console.print()
+    matches = _follow_mode(state)
     rows = [("mode", MODES[state.get("mode", "python")][0]),
-            ("project", _project_line(Path(state["project"]))),
+            ("project", _project_line(Path(state["project"])) if matches else "none yet  ·  /migrate a file to make one"),
             ("team", "planner  ·  workers in parallel  ·  expert  ·  tester"),
             ("models", f"{short(os.environ.get('MODEL_NAME'))}  +  {short(os.environ.get('REVIEWER_MODEL'))}")]
     for label, value in rows:
@@ -295,6 +306,7 @@ def handle(line: str, state: dict) -> bool:
     except ValueError:
         words = line.split()
     cmd, args = words[0].lstrip("/").lower(), [w.strip('"') for w in words[1:]]
+    _follow_mode(state)
     project = state["project"]
     last = lambda: args[0] if args else state.get("last_run")  # noqa: E731
 
@@ -334,6 +346,7 @@ def handle(line: str, state: dict) -> bool:
         folder = next((f.resolve() for f in places if (f / "profile.json").exists()), Path("."))
         if args and (folder / "profile.json").exists():
             state["project"] = str(folder)
+            state["mode"] = _language(folder)
             console.print(f"project: {_project_line(folder)}")
         else:
             console.print("[red]that folder has no profile.json[/red]  example: /use tests/flow_fixture")
