@@ -188,15 +188,17 @@ def rules_for(f: Function, hint: dict) -> dict | str:
         for key in ("min", "max", "max_len", "choices", "nullable"):
             if idea.get(key) not in (None, [], ""):
                 rule[key] = idea[key]
+        if rule.get("nullable") and not p.optional and not (p.has_default and _default_value(f, p.name) is None):
+            rule["nullable"] = False               # the model may only say "can be null" where the source itself says so
         samples = [x for x in idea.get("samples") or [] if isinstance(x, str) and len(x) <= 200 and all(" " <= ch <= "~" for ch in x)]
-        if samples and kind == "str":
+        if kind == "str" and idea.get("choices"):
+            rule.pop("max_len", None)              # a mode, unit or encoding name: only the listed values, never free text
+        elif samples and kind == "str":
             rule["samples"] = samples[:30]
             rule["alphabet"] = ALPHABET + "".join(sorted(set("".join(samples)) - set(ALPHABET)))
             rule["max_len"] = max(int(rule.get("max_len") or 0), max(map(len, samples)) + 8)
             if not idea.get("choices"):
                 rule.pop("choices", None)          # words harvested from the source are a poor stand-in once there are real samples
-        elif kind == "str" and idea.get("choices"):
-            rule.pop("max_len", None)              # a mode, unit or encoding name: only the listed values, never free text
         if "min" in rule and "max" in rule:
             limit = 10**12
             rule["min"], rule["max"] = max(-limit, min(rule["min"], rule["max"])), min(limit, max(rule["min"], rule["max"]))

@@ -39,6 +39,7 @@ async def _main(ns: argparse.Namespace) -> int:
     journal = runs / "_journals" / f"{Path(ns.script).stem}.{tag or 'run'}.{int(time.time())}.journal.json"  # fresh per process; resume is done by the engine from receipts
     backend = TeamBackend()
     spend0 = _spend()
+    from openjiuwen.agent_teams.workflow.engine.errors import BudgetExhausted
     from .team import TEAM
     stopped = None
     try:
@@ -51,7 +52,7 @@ async def _main(ns: argparse.Namespace) -> int:
             log_sink=lambda m: print(m, flush=True),
             workflow_budget=BudgetLedger(total=ns.token_limit) if ns.token_limit else None,
         )
-    except Exception as e:  # most often the token limit; kept pieces are on disk and `--resume` continues from them
+    except (Exception, BudgetExhausted) as e:  # BudgetExhausted is a BaseException; most often the token limit; kept pieces are on disk and `--resume` continues from them
         result, stopped = None, f"{type(e).__name__}: {e}"
         print(f"run stopped early: {stopped}", flush=True)
     await asyncio.sleep(6)  # OpenRouter's usage counter lags the last calls by a few seconds
