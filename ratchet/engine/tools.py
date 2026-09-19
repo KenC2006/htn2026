@@ -218,7 +218,7 @@ class RunContext:
                                        for c in cases])
 
             result = await asyncio.to_thread(run)
-            ctx.events.emit("tool.probe_source", actor=actor, payload={"export": export, "input": inputs, "result": result[:600]})
+            ctx.events.emit("tool.probe_source", actor=actor, payload={"export": export, "input": inputs, "result": result[:4000]})
             return result
 
         async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: str, answer: str) -> str:

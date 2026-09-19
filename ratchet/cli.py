@@ -3,6 +3,7 @@
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
   run <profile_dir> [--solo] [--resume --run-id X]   team migration (or single-agent baseline); --resume continues a run
+  watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
   status <run_id>             progress table rebuilt from the event log
   evaluate <run_id>           single-use locked evaluation: cases never seen by agents or repair loops
   export <run_id>             patch + report.md + receipts.json (refuses to call a stale/blocked run accepted)
@@ -135,11 +136,27 @@ def run(ns: argparse.Namespace) -> int:
     args = json.dumps({"profile_dir": str(Path(ns.profile_dir).resolve()), "run_id": run_id, "resume": bool(ns.resume)})
     RUNS.mkdir(exist_ok=True)
     with (RUNS / f"{run_id}.out").open("a" if ns.resume else "w", encoding="utf-8") as out:
-        code = subprocess.run([sys.executable, "-m", "ratchet.framework.run", str(script), "--args", args,
-                               "--token-limit", str(ns.token_limit)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT).returncode
+        proc = subprocess.Popen([sys.executable, "-m", "ratchet.framework.run", str(script), "--args", args,
+                                 "--token-limit", str(ns.token_limit)], cwd=ROOT, stdout=out, stderr=subprocess.STDOUT)
+        if sys.stdout.isatty() and not ns.no_watch:
+            from .view import watch as live_view
+            try:
+                live_view(RUNS / run_id, proc=proc)
+            except KeyboardInterrupt:
+                proc.terminate()
+        code = proc.wait()
     status(argparse.Namespace(run_id=run_id))
     print(f"\nNext: python -m ratchet export {run_id}")
     return code
+
+
+# ───────────────────────── watch ─────────────────────────
+
+def watch(ns: argparse.Namespace) -> int:
+    from .view import watch as live_view
+    _events(ns.run_id)
+    live_view(RUNS / ns.run_id, replay=ns.replay, speed=ns.speed)
+    return 0
 
 
 # ───────────────────────── status ─────────────────────────
@@ -292,7 +309,10 @@ def main() -> None:
     p = sub.add_parser("run"); p.add_argument("profile_dir"); p.add_argument("--solo", action="store_true")
     p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=400000)
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
+    p.add_argument("--no-watch", action="store_true", help="do not show the live view")
     p.set_defaults(fn=run)
+    p = sub.add_parser("watch"); p.add_argument("run_id"); p.add_argument("--replay", action="store_true", help="play a finished run back")
+    p.add_argument("--speed", type=float, default=1.0); p.set_defaults(fn=watch)
     p = sub.add_parser("status"); p.add_argument("run_id"); p.set_defaults(fn=status)
     p = sub.add_parser("evaluate"); p.add_argument("run_id"); p.add_argument("--profile-dir")
     p.add_argument("--force", action="store_true", help="re-run a single-use locked evaluation"); p.set_defaults(fn=evaluate)
