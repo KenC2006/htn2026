@@ -32,20 +32,24 @@ def _spend() -> float | None:
 async def _main(ns: argparse.Namespace) -> int:
     runs = ROOT / "runs"
     runs.mkdir(exist_ok=True)
-    journal = runs / f"{Path(ns.script).stem}.journal.json"
+    wf_args = json.loads(ns.args) if ns.args else None
+    tag = (wf_args or {}).get("run_id") if isinstance(wf_args, dict) else None
+    journal = runs / f"{Path(ns.script).stem}{'.' + tag if tag else ''}.journal.json"  # one journal per run, so runs can overlap
     backend = TeamBackend()
     spend0 = _spend()
     result = await run_workflow(
         ns.script,
-        args=json.loads(ns.args) if ns.args else None,
+        args=wf_args,
         backend=backend,
         journal_path=str(journal),
         resume=str(journal) if ns.resume and journal.exists() else None,
         log_sink=lambda m: print(m, flush=True),
         workflow_budget=BudgetLedger(total=ns.token_limit) if ns.token_limit else None,
     )
+    await asyncio.sleep(6)  # OpenRouter's usage counter lags the last calls by a few seconds
     spend = _spend()
-    print(json.dumps({"result": result, "calls": backend.calls,
+    from .team import TEAM
+    print(json.dumps({"result": result, "calls": backend.calls, "member_restarts": TEAM.restarts,
                       "cost_usd": None if None in (spend, spend0) else round(spend - spend0, 6)}, indent=2, default=str))
     return 0
 

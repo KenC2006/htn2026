@@ -131,6 +131,81 @@ class FlowTest(unittest.TestCase):
         self.assertIn("needs a human", ctx.blocked["S1"])
         self.assertEqual(self.ledger.contracts["time-arithmetic"]["version"], 1)
 
+    def test_handed_in_requires_every_allowlisted_file(self):
+        TEAM.reset("t")
+        ctx = self.ctx()
+        self.assertFalse(ctx.handed_in("worker-S1", "S1"))
+        asyncio.run(self.tool(ctx.worker_tools("worker-S1", "S1"), "submit_candidate")("target/bucket.rs", BUCKET))
+        self.assertTrue(ctx.handed_in("worker-S1", "S1"))
+        self.assertFalse(ctx.handed_in("worker-S1", "S2"))
+
+    def test_member_with_a_poisoned_conversation_gets_one_fresh_start(self):
+        # Regression: one malformed tool call made the provider reject every later call of that member (HTTP 400).
+        from types import SimpleNamespace
+        from ratchet.framework.team import MemberSpec
+        TEAM.reset("t")
+        TEAM.register(MemberSpec("solo", "solo", "prompt"))
+        built = []
+
+        async def fake_agent(member):
+            if member not in TEAM._agents:
+                n = len(built)
+
+                async def invoke(inputs, n=n):
+                    if n == 0:
+                        raise RuntimeError("Error code: 400 - Provider returned error")
+                    return {"output": f"ok from conversation {inputs['conversation_id']}"}
+
+                built.append(n)
+                gen = TEAM._generation.get(member, 0)
+                TEAM._agents[member] = SimpleNamespace(invoke=invoke, card=SimpleNamespace(id=f"t.{member}" + (f".r{gen}" if gen else "")))
+            return TEAM._agents[member]
+
+        TEAM._agent = fake_agent
+        try:
+            text, _, _ = asyncio.run(TEAM.ask("solo", "go"))
+        finally:
+            del TEAM._agent
+        self.assertEqual(text, "ok from conversation t.solo.r1")
+        self.assertEqual([r["member"] for r in TEAM.restarts], ["solo"])
+
+    # ── CLI (no model calls) ──
+    def _cli(self, fn, **kw):
+        import argparse, contextlib, io
+        from ratchet import cli
+        cli.RUNS = self.tmp  # the run lives at <tmp>/run
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = getattr(cli, fn)(argparse.Namespace(**kw))
+        return code, buf.getvalue()
+
+    def test_scan_accepts_the_fixture_and_flags_a_missing_placeholder(self):
+        code, out = self._cli("scan", profile_dir=str(self.profile))
+        self.assertEqual(code, 0, out)
+        (self.profile / "target" / "split.rs").unlink()
+        code, out = self._cli("scan", profile_dir=str(self.profile))
+        self.assertEqual(code, 1)
+        self.assertIn("no compiling placeholder at target/split.rs", out)
+
+    def test_export_writes_patch_and_report_and_refuses_a_stale_run(self):
+        self.events.emit("run.started", actor="scheduler", payload={"chunks": ["S1", "S2", "S3"], "profile_dir": str(self.profile)})
+        for cid, path, code in (("S1", "target/bucket.rs", BUCKET), ("S2", "target/offset.rs", OFFSET), ("S3", "target/split.rs", SPLIT)):
+            self.assertTrue(self.integ.integrate(cid, self.cand(path, code)).accepted)
+        self.events.emit("run.finished", actor="scheduler", payload={"accepted": self.integ.accepted, "exportable": True, "accepted_tree": self.integ.tree_hash()})
+        code, out = self._cli("export", run_id="run", profile_dir=None)
+        self.assertEqual(code, 0, out)
+        export = self.run_dir / "export"
+        self.assertIn("+    ts.div_euclid(width) * width", (export / "migration.patch").read_text())
+        self.assertIn("ACCEPTED, exportable", (export / "report.md").read_text())
+        _, status = self._cli("status", run_id="run")
+        self.assertIn("accepted 3/3", status)
+        # A contract change after acceptance makes receipts stale: export must say so.
+        d = self.ledger.record_decision(PROPOSAL, proposed_by="contract-steward", allowed_contracts=["time-arithmetic"])
+        self.integ.invalidate(d["affected_chunks"], "contract changed")
+        code, _ = self._cli("export", run_id="run", profile_dir=None)
+        self.assertEqual(code, 1)
+        self.assertIn("NOT EXPORTABLE", (export / "report.md").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

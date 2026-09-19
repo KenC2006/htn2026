@@ -72,7 +72,7 @@ async def run(args):
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)
     integ = Integrator(profile_dir, run_dir, cases_path, ledger, events)
     levels = _levels(chunks)
-    events.emit("run.started", actor="scheduler", profile=profile["profile"], payload={"chunks": list(chunks), "levels": levels})
+    events.emit("run.started", actor="scheduler", profile=profile["profile"], payload={"chunks": list(chunks), "levels": levels, "profile_dir": str(profile_dir)})
     attempts = {c: 0 for c in chunks}
     stale_seq = {c: 0 for c in chunks}
     ctx = RunContext(profile_dir, run_dir, cases_path, profile, chunks, ledger, integ, events)
@@ -103,7 +103,8 @@ async def run(args):
                     payload={"why": verdict.status, "case_id": (verdict.counterexample or {}).get("case_id")})
         proposal = await agent(
             ctx.steward_query(cid, asked_by="the verifier (via scheduler)", counterexample=verdict.counterexample,
-                              candidate_files=candidate["files"]),
+                              candidate_files=candidate["files"],
+                              build_error=verdict.detail if verdict.status == "REJECTED_BUILD" else ""),
             schema=DECISION_SCHEMA, label=f"steward-{cid}-{attempts[cid]}-{stale_seq[cid]}", options={"member": "steward"})
         return ctx.apply_proposal(cid, proposal, asked_by="scheduler")
 
@@ -153,7 +154,9 @@ async def run(args):
                 stale_retry, prompt = True, stale_prompt(candidate["files"], v.detail)
                 continue
             stale_retry = False
-            if v.status == "REJECTED_BEHAVIOR":
+            # Behavior mismatches always go to the steward. Build failures go back only when the worker was
+            # following steward guidance: the steward can be wrong too, and only the compiler can tell it so.
+            if v.status == "REJECTED_BEHAVIOR" or (v.status == "REJECTED_BUILD" and ctx.has_guidance(cid)):
                 decision = await consult_steward(cid, candidate, v)
                 if decision:
                     log(f"{cid}: decision {decision['decision_id']} -> affects {decision['affected_chunks']}")
@@ -201,7 +204,13 @@ async def run(args):
                 revalidate += integ.invalidate(ledger.affected_chunks(contract_id), f"contract {contract_id} changed")
             for c in dict.fromkeys(revalidate):
                 prior = {"files": [{"path": p, "content": t} for p, t in integ.files_of([c]).items()]}
-                await integrate(c, await settle(c, prior=prior, stale_reason="a shared contract changed after you were accepted"))
+                # Cheap path first: accepted code that still passes every check under the new contract version only
+                # needs a fresh receipt. The worker is called back only if that re-check fails.
+                recheck = {**prior, "contract_hashes": ledger.hashes(chunks[c].get("contract_ids", []))}
+                v = await asyncio.to_thread(integ.integrate, c, recheck)
+                events.emit("chunk.revalidated", actor="integrator", chunk_id=c, payload={"reason": v.status, "code_changed": False})
+                if not v.accepted:
+                    await integrate(c, await settle(c, prior=prior, stale_reason="a shared contract changed after you were accepted"))
             for c, cand in zip(batch, candidates):
                 await integrate(c, cand)
 

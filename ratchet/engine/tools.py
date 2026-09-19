@@ -42,8 +42,20 @@ STEWARD_PROMPT = (
     "(kind=implementation_clarification). You may never change expected behavior; if the source itself is ambiguous, "
     "use kind=behavior_change and a human will decide. (3) If existing guidance already covers the question, use "
     "kind=no_decision and just answer. (4) Rulings must be general rules for the target language, not patches to one "
-    "function. Name the exact target-language construct to use. (5) Probe several inputs in ONE probe_source call. "
+    "function. Name a target-language construct only if you are certain of its exact spelling; you cannot compile, "
+    "workers can, so otherwise describe the required behavior precisely and let them find the construct. (5) Probe several inputs in ONE probe_source call. "
     "(6) Finish every request by calling submit_ruling exactly once; that is the only way to answer."
+)
+
+SOLO_PROMPT = (
+    "You are a single migration agent. You port code chunk by chunk to the target language, preserving behavior exactly. "
+    "You cannot run tests; an independent verifier will. Tools:\n"
+    "- probe_source(export, inputs_json): run the ORIGINAL implementation on inputs you choose. Use it whenever the source "
+    "relies on language semantics that may differ in the target (integer division, modulo, overflow, sort stability, "
+    "string ordering, empty inputs). Guessing wastes one of your two attempts per chunk.\n"
+    "- check_compile(chunk_id, path, content): build your file with the real compiler. Once it says BUILD_OK, submit.\n"
+    "- submit_candidate(chunk_id, path, content, notes): hand in one finished file. The ONLY way to hand in work.\n"
+    "Write only the files you are allowed to write."
 )
 
 DECISION_SCHEMA = {
@@ -77,12 +89,20 @@ class RunContext:
     def source_text(self, cid: str) -> str:
         return "\n\n".join(f"# {p}\n{(self.profile_dir / p).read_text(encoding='utf-8')}" for p in self.chunks[cid]["source_files"])
 
+    def handed_in(self, member: str, cid: str | None = None) -> bool:
+        """True once the member has submitted every file of the chunk (any one chunk, when cid is None)."""
+        paths = {f["path"] for f in TEAM.outbox.get(member, {}).get("files", [])}
+        return any(paths >= set(self.chunks[c]["write_allowlist"]) for c in ([cid] if cid else self.chunks))
+
     def mark_seen(self, member: str, cid: str) -> None:
         self.seen[member] = self.ledger.hashes(self.chunks[cid].get("contract_ids", []))
 
     # ── steward ────────────────────────────────────────────────────────────
+    def has_guidance(self, cid: str) -> bool:
+        return any(self.ledger.contracts[c]["guidance"] for c in self.chunks[cid].get("contract_ids", []))
+
     def steward_query(self, cid: str, *, asked_by: str, question: str = "", counterexample: dict | None = None,
-                      candidate_files: list | None = None) -> str:
+                      candidate_files: list | None = None, build_error: str = "") -> str:
         m = self.chunks[cid]
         parts = [f"Request from {asked_by} about chunk {cid} (exports {m['exports']}).",
                  f"Contracts in play:\n{self.ledger.prompt_text(m['contract_ids'])}",
@@ -93,6 +113,12 @@ class RunContext:
             parts.append("The verifier rejected a candidate. Counterexample (source output is the truth): "
                          f"{json.dumps(counterexample)}\nRejected candidate: {json.dumps(candidate_files)}\n"
                          "Decide whether this shows a general source-vs-target difference other workers could also hit.")
+        if build_error:
+            parts.append("A candidate that FOLLOWED your guidance did not compile. The real compiler said:\n"
+                         f"{build_error[-900:]}\nCandidate: {json.dumps(candidate_files)}\n"
+                         "If your guidance named a construct that does not exist in the target language or was otherwise "
+                         "wrong, issue a corrected implementation_clarification that replaces it and say which decision it "
+                         "corrects. If the worker simply made its own mistake, use no_decision.")
         parts.append(f"probe_source takes export (one of {sorted({e for c in self.chunks.values() for e in c['exports']})}) "
                      f"and inputs_json, a JSON array whose items are shaped like: {self._example_input(cid)}.\n"
                      f"contract_id must be one of {m['contract_ids']}. Finish by calling submit_ruling.")
@@ -152,7 +178,7 @@ class RunContext:
                 ToolSpec("check_compile", "Build ONE file of yours with the real target compiler. Returns BUILD_OK or the compiler errors. Runs no tests.", check_compile),
                 ToolSpec("ask_steward", "Ask the contract steward how a source behavior must be reproduced in the target language. Returns a binding answer.", ask_steward)]
 
-    def steward_tools(self) -> list[ToolSpec]:
+    def steward_tools(self, actor: str = "contract-steward") -> list[ToolSpec]:
         ctx = self
 
         async def probe_source(export: str, inputs_json: str) -> str:
@@ -176,7 +202,7 @@ class RunContext:
                                        for c in cases])
 
             result = await asyncio.to_thread(run)
-            ctx.events.emit("tool.probe_source", actor="contract-steward", payload={"export": export, "input": inputs, "result": result[:600]})
+            ctx.events.emit("tool.probe_source", actor=actor, payload={"export": export, "input": inputs, "result": result[:600]})
             return result
 
         async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: str, answer: str) -> str:
@@ -188,9 +214,39 @@ class RunContext:
         return [ToolSpec("probe_source", "Run the frozen ORIGINAL implementation of one export on up to 8 inputs you choose. inputs_json is a JSON ARRAY of inputs. Returns the real status/value/error_code for each.", probe_source),
                 ToolSpec("submit_ruling", "Answer the request; the only way to answer. kind is implementation_clarification | behavior_change | no_decision. evidence_refs is a comma-separated list: the source file path plus the probes or case id you relied on.", submit_ruling)]
 
+    def register_solo(self) -> None:
+        """Single-agent baseline: ONE member does every chunk and is its own steward.
+
+        Same model as the team's workers, same compile tool, same access to the original via
+        probe_source, same gate, attempts and token cap. What it lacks is only what the team adds:
+        a second specialist, parallelism, and a shared ledger.
+        """
+        ctx, member = self, "solo"
+
+        async def check_compile(chunk_id: str, path: str, content: str) -> str:
+            if chunk_id not in ctx.chunks:
+                return f"unknown chunk_id; use one of {sorted(ctx.chunks)}"
+            return await ctx.tool(ctx.worker_tools(member, chunk_id), "check_compile")(path, content)
+
+        async def submit_candidate(chunk_id: str, path: str, content: str, notes: str = "") -> str:
+            return await ctx.tool(ctx.worker_tools(member, chunk_id), "submit_candidate")(path, content, notes)
+
+        probe = self.tool(self.steward_tools(actor=member), "probe_source")
+        TEAM.register(MemberSpec(member, "solo", SOLO_PROMPT, max_iterations=14, tools=[
+            ToolSpec("probe_source", "Run the frozen ORIGINAL implementation of one export on up to 8 inputs you choose. inputs_json is a JSON ARRAY of inputs.", probe),
+            ToolSpec("check_compile", "Build ONE file with the real target compiler. Returns BUILD_OK or the compiler errors. Runs no tests.", check_compile),
+            ToolSpec("submit_candidate", "Hand in ONE finished file for verification. The only way to hand in work.", submit_candidate)],
+            submit_tools={"submit_candidate"}, is_done=lambda: ctx.handed_in(member)))
+
+    @staticmethod
+    def tool(specs: list[ToolSpec], name: str):
+        return next(t.func for t in specs if t.name == name)
+
     def register_team(self, steward_model: str | None) -> None:
         TEAM.register(MemberSpec("steward", "steward", STEWARD_PROMPT, model=steward_model, tools=self.steward_tools(),
-                                 max_iterations=10, serial=True))
+                                 max_iterations=10, serial=True, submit_tools={"submit_ruling"}))
         for cid in self.chunks:
             member = f"worker-{cid}"
-            TEAM.register(MemberSpec(member, "worker", WORKER_PROMPT, tools=self.worker_tools(member, cid), max_iterations=10))
+            TEAM.register(MemberSpec(member, "worker", WORKER_PROMPT, tools=self.worker_tools(member, cid), max_iterations=10,
+                                     submit_tools={"submit_candidate"},
+                                     is_done=lambda member=member, cid=cid: self.handed_in(member, cid)))

@@ -35,8 +35,13 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 
     . env/activate-swarm.sh
     python -m unittest tests.test_gate tests.test_flow
-    python -m ratchet.framework.run workflows/migrate.py --args '{"profile_dir": "tests/flow_fixture", "run_id": "try-1"}'
-    python env/show-run.py try-1
+    python -m ratchet doctor                                   # toolchains, key, budget
+    python -m ratchet scan tests/flow_fixture                  # validates YOUR profile folder too, costs nothing
+    python -m ratchet run tests/flow_fixture --run-id try-1    # team run (add --solo for the single-agent baseline)
+    python -m ratchet status try-1
+    python -m ratchet export try-1                             # runs/try-1/export/: migration.patch, report.md, receipts.json
+    python env/show-run.py try-1                               # full event trace
+    python env/compare-runs.py try-1 other-run                 # side-by-side metrics (for D)
 
 ### Case (one JSON object per line in `cases.jsonl`)
 
@@ -105,7 +110,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 
 Event `type` values: `run.started`, `chunk.ready`, `worker.started`, `worker.question` (a worker asked the steward),
 `tool.probe_source` (the steward ran the original), `tool.check_compile`, `steward.consulted` (scheduler sent a counterexample),
-`steward.answered`, `decision.recorded`, `decision.rejected`,
+`steward.answered`, `decision.recorded`, `decision.rejected`, `chunk.revalidated` (accepted code re-checked after a contract change),
 `candidate.submitted`, `candidate.verified` (passed its own check), `candidate.rejected`, `candidate.stale`,
 `chunk.accepted` (integrated into the accepted tree; this is the one to count), `chunk.blocked`, `run.finished`.
 
