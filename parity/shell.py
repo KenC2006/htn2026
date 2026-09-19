@@ -258,9 +258,9 @@ def banner(state: dict, animate: bool = False) -> None:
     console.print()
     if animate and console.is_terminal:
         from rich.live import Live
-        with Live(_logo(0.0), console=console, refresh_per_second=30, transient=False) as live:
+        with Live(_logo(0.0), console=console, auto_refresh=False, transient=False) as live:
             for step in range(1, 17):
-                live.update(_logo(step / 16))
+                live.update(_logo(step / 16), refresh=True)
                 time.sleep(0.025)
     else:
         console.print(_logo(), end="")

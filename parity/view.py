@@ -337,7 +337,17 @@ def watch(run_dir: Path, *, replay: bool = False, speed: float = 1.0, proc=None)
     board, path = Board(run_dir), run_dir / "events.jsonl"
     draw = lambda: board.render(console.size.height, console.size.width)  # noqa: E731
     frame = 0.07
-    with Live(draw(), console=console, refresh_per_second=15, screen=False, transient=False) as live:
+    # Own screen, and a redraw only when something changed: redrawing a tall view in place 15 times a second made
+    # the terminal flicker. The last frame is printed normally afterwards so it stays in the scrollback.
+    with Live(draw(), console=console, auto_refresh=False, screen=True, vertical_overflow="crop") as live:
+        last = [None]
+
+        def show() -> None:
+            key = (int(board.now - board.t0), len(board.feed), console.size, tuple((x["state"], x["note"], int(x["shown"])) for x in board.pieces.values()))
+            if key != last[0]:
+                last[0] = key
+                live.update(draw(), refresh=True)
+
         if replay:
             for i, e in enumerate(events := _read(path)):
                 board.apply(e)
@@ -345,26 +355,28 @@ def watch(run_dir: Path, *, replay: bool = False, speed: float = 1.0, proc=None)
                 waited = 0.0
                 while waited < gap or (board.typing and waited < 4.0):
                     board.tick(frame)
-                    live.update(draw())
+                    show()
                     time.sleep(frame)
                     waited += frame
             board.tick(99)
-            live.update(draw())
-            return
-        seen, last_read, idle_after_exit = 0, 0.0, 0
-        while True:
-            if time.time() - last_read > 0.4:
-                last_read = time.time()
-                events = _read(path)
-                for e in events[seen:]:
-                    board.apply(e)
-                seen = len(events)
-                if proc is not None and proc.poll() is not None:
-                    idle_after_exit += 1
-            if board.t0 and not board.finished:
-                board.now = time.time()
-            board.tick(frame)
-            live.update(draw())
-            if (board.finished and not board.typing) or idle_after_exit > 5:
-                return
-            time.sleep(frame)
+            show()
+            time.sleep(1.0)
+        else:
+            seen, last_read, idle_after_exit = 0, 0.0, 0
+            while True:
+                if time.time() - last_read > 0.4:
+                    last_read = time.time()
+                    events = _read(path)
+                    for e in events[seen:]:
+                        board.apply(e)
+                    seen = len(events)
+                    if proc is not None and proc.poll() is not None:
+                        idle_after_exit += 1
+                if board.t0 and not board.finished:
+                    board.now = time.time()
+                board.tick(frame)
+                show()
+                if (board.finished and not board.typing) or idle_after_exit > 5:
+                    break
+                time.sleep(frame)
+    console.print(draw())
