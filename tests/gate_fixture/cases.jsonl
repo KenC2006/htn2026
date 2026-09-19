@@ -1,0 +1,6 @@
+{"schema_version": 1, "case_id": "positive-mid", "chunk_id": "S1", "export": "bucket", "input": {"ts": 2500, "width": 1000}}
+{"schema_version": 1, "case_id": "zero", "chunk_id": "S1", "export": "bucket", "input": {"ts": 0, "width": 1000}}
+{"schema_version": 1, "case_id": "exact-boundary", "chunk_id": "S1", "export": "bucket", "input": {"ts": 3000, "width": 1000}}
+{"schema_version": 1, "case_id": "negative-boundary-01", "chunk_id": "S1", "export": "bucket", "input": {"ts": -1, "width": 1000}}
+{"schema_version": 1, "case_id": "negative-exact", "chunk_id": "S1", "export": "bucket", "input": {"ts": -2000, "width": 1000}}
+{"schema_version": 1, "case_id": "large-negative", "chunk_id": "S1", "export": "bucket", "input": {"ts": -999999999999, "width": 86400000}}

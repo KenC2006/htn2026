@@ -9,3 +9,5 @@ __pycache__/
 *.pyc
 runs/
 logs/
+tests/gate_fixture/frozen.lock.json
+__pycache__/

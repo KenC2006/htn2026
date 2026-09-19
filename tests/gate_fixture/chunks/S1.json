@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "chunk_id": "S1",
+  "profile": "gate-selftest",
+  "source_files": ["legacy/bucket.py"],
+  "exports": ["bucket"],
+  "write_allowlist": ["target/bucket.rs"],
+  "depends_on": [],
+  "contract_ids": ["bucket-semantics"],
+  "limits": {"attempts": 2, "verify_seconds_per_attempt": 120}
+}

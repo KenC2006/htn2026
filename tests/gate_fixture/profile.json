@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "profile": "gate-selftest",
+  "run_source": ["python", "runners/source.py"],
+  "run_target": ["python", "runners/target.py"],
+  "build_target": ["rustc", "-O", "harness/main.rs", "-o", "selftest_target.exe"],
+  "verify_seconds": 120,
+  "frozen": ["profile.json", "chunks/*", "legacy/*", "harness/*", "runners/*", "cases.jsonl"],
+  "oracle_paths": ["legacy", "cases.jsonl"],
+  "forbid_patterns": [
+    {"regex": "\\bunsafe\\b", "why": "application unsafe is not allowed in the Rust core"},
+    {"regex": "\\b(todo|unimplemented)!", "why": "stub macro"}
+  ]
+}
