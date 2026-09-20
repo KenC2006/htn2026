@@ -27,9 +27,9 @@ Point Parity at a file and it tells you which functions it can migrate, and why 
 5. **Escalate.** A function gets three tries, and each failed try comes back with the input that broke it. When the tries run out, the function moves up to a stronger model with everything that failed so far. Cheap models do most of the work and the expensive one only sees the hard cases: one earlier run did nine functions on a small open model and one on Claude, $1.48 total. If the strongest model fails too, the function is marked as needing a human. Nothing is kept that didn't pass.
 6. **Put it together.** Functions are added one at a time and rechecked with everything already kept, so the library works as a whole. Then the hidden tests run, once.
 
-## Three migrations, three reasons
+## Three migrations
 
-We picked one real library for each reason a company migrates.
+We picked one real library for each migration
 
 | Mode               | What we ran                                    | Result                                        |
 | ------------------ | ---------------------------------------------- | --------------------------------------------- |
@@ -91,16 +91,16 @@ Models come from OpenRouter (WorkSwarm 0.2.6). The recorded runs used `anthropic
 
 ## Where things are
 
-| Path | What |
-|---|---|
-| `parity/engine/` | the checker (`gate.py`), rules, hidden tests, the agents' tools |
-| `parity/framework/` | the bridge to SwarmFlow and openJiuwen |
-| `parity/newproject.py`, `scan_python.py`, `scan_c.py` | the scanners and the project builder for Python and C |
-| `parity/newarkts.py`, `parity/arkts/` | the same for TypeScript to ArkTS |
-| `parity/shell.py`, `view.py`, `cli.py` | console, live view, commands |
-| `workflows/migrate.py` | the team's workflow |
-| `fixtures/telemetry-workbench/` | prepared projects: `py-rust-batch` (Aidan's), `ts-arkts-core` (Daksh's) |
-| `examples/` | the jellyfish, Redis and Deno code the runs used, and the video scripts |
+| Path                                                  | What                                                                    |
+| ----------------------------------------------------- | ----------------------------------------------------------------------- |
+| `parity/engine/`                                      | the checker (`gate.py`), rules, hidden tests, the agents' tools         |
+| `parity/framework/`                                   | the bridge to SwarmFlow and openJiuwen                                  |
+| `parity/newproject.py`, `scan_python.py`, `scan_c.py` | the scanners and the project builder for Python and C                   |
+| `parity/newarkts.py`, `parity/arkts/`                 | the same for TypeScript to ArkTS                                        |
+| `parity/shell.py`, `view.py`, `cli.py`                | console, live view, commands                                            |
+| `workflows/migrate.py`                                | the team's workflow                                                     |
+| `fixtures/telemetry-workbench/`                       | prepared projects: `py-rust-batch` (Aidan's), `ts-arkts-core` (Daksh's) |
+| `examples/`                                           | the jellyfish, Redis and Deno code the runs used, and the video scripts |
 
 ## TypeScript to ArkTS setup
 
@@ -115,9 +115,3 @@ Needs DevEco Studio, a signing profile and one running emulator: [env/setup-arkt
 says what is missing. The scanner and generator are `parity/newarkts.py` and `parity/arkts/`; the device runners are
 the prepared project's. Background: [experiments/arkts-smoke](experiments/arkts-smoke/README.md),
 [docs/TS_TO_ARKTS_PLAN.md](docs/TS_TO_ARKTS_PLAN.md).
-
-## Windows traps
-
-- WorkSwarm prints Chinese and crashes a cp1252 console without `PYTHONUTF8=1`. The `parity` command sets it.
-- Without `JIUWENSWARM_HOME`, importing WorkSwarm writes to your home folder. The command sets that too.
-- `swarmflow` can only be imported inside a script the engine runs.
