@@ -62,23 +62,7 @@ The agents never get to say done. Only the checker does.
 
 ## How the agents work together
 
-```mermaid
-flowchart TD
-    U["You pick the functions"] --> S["Scanner and test builder<br/>plain code, runs the original"]
-    S --> P["Planner agent<br/>orders the work"]
-    P --> W["Worker agents, in parallel<br/>one function each"]
-    P -- "flags a language difference" --> E["Expert agent<br/>runs the original, writes a rule"]
-    W -- "asks a question" --> E
-    E -- "the rule goes to every worker" --> W
-    W --> C{"Checker, plain code<br/>compile, run old and new, compare"}
-    C -- "failed, gets the input that broke it,<br/>then a stronger model" --> W
-    C -- "a mismatch also goes to the expert" --> E
-    C -- "passed" --> T["Tester agent, different model<br/>invents inputs to break it"]
-    T -- "broke it, new permanent test" --> C
-    T -- "could not break it" --> I["Kept<br/>rechecked with everything else"]
-    I --> H["Hidden tests, once"]
-    H --> R["Export, new code and report"]
-```
+![How a function gets through Parity](docs/workflow.png)
 
 What one check looks like: the tester calls `soundex("Lloyd")` on both versions. The original says `"L300"`, the Rust says `"L300"`. That is one of thousands of pairs compared in a run. One different answer and the function goes back.
 

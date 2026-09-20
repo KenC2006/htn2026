@@ -1,0 +1,60 @@
+<!-- Source of docs/workflow.png. Render: chrome --headless --screenshot=workflow.png --window-size=1600,760 --force-device-scale-factor=2 workflow.html -->
+<html><body style="margin:0;background:#0b0f0e;font-family:Segoe UI,Arial,sans-serif;color:#e8efec">
+<div style="position:relative;width:1600px;height:760px">
+<style>
+  .b{position:absolute;width:180px;height:96px;border-radius:12px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-sizing:border-box}
+  .b b{font-size:21px;font-weight:600}
+  .b span{font-size:15px;color:#c9d4d0;margin-top:4px;line-height:1.25}
+  .ai{background:#0e2a22;border:2px solid #00e0a0}
+  .plan{background:#10233d;border:2px solid #4da3ff}
+  .work{background:#0e2a22;border:2px solid #00e0a0}
+  .exp{background:#2a2140;border:2px solid #b48cff}
+  .test{background:#3a1d18;border:2px solid #ff8a70}
+  .done{background:#16301d;border:2px solid #7ee081}
+  .b b{letter-spacing:.2px}
+  .n{position:absolute;left:-12px;top:-12px;width:28px;height:28px;border-radius:50%;background:#0b0f0e;border:2px solid currentColor;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .code{background:#1a1f1e;border:2px solid #66706c}
+  .lbl{position:absolute;font-size:16px;color:#b9c6c1;text-align:center;line-height:1.3}
+  .t{position:absolute;left:40px;top:28px;font-size:30px;font-weight:600}
+  .k{position:absolute;top:34px;font-size:16px;display:flex;align-items:center;gap:8px}
+  .sw{width:18px;height:18px;border-radius:5px;display:inline-block}
+</style>
+<div class="t" style="background:linear-gradient(90deg,#5ef2b0,#4da3ff);-webkit-background-clip:text;color:transparent">How a function gets through Parity</div>
+<div class="k" style="left:1010px"><i class="sw" style="background:#10233d;border:2px solid #4da3ff"></i><i class="sw" style="background:#0e2a22;border:2px solid #00e0a0"></i><i class="sw" style="background:#2a2140;border:2px solid #b48cff"></i><i class="sw" style="background:#3a1d18;border:2px solid #ff8a70"></i>AI agents (openJiuwen)</div>
+<div class="k" style="left:1320px"><i class="sw" style="background:#1a1f1e;border:2px solid #66706c"></i>plain code, no AI</div>
+
+<!-- expert, above -->
+<div class="b exp" style="left:480px;top:120px;width:400px;color:#b48cff"><b style="color:#e8efec">Expert</b><span>runs the original code, writes a rule everyone follows</span></div>
+
+<!-- main row -->
+<div class="b code" style="left:40px;top:340px;color:#9aa7a2"><i class="n">1</i><b style="color:#e8efec">Scan + tests</b><span>picks what can move,<br>builds the tests</span></div>
+<div class="b plan" style="left:260px;top:340px;color:#4da3ff"><i class="n">2</i><b style="color:#e8efec">Planner</b><span>orders the work</span></div>
+<div class="b work" style="left:480px;top:340px;width:400px;color:#00e0a0"><i class="n">3</i><b style="color:#e8efec">Workers, in parallel</b><span>one function each, never see the tests</span></div>
+<div class="b code" style="left:940px;top:340px;color:#9aa7a2"><i class="n">4</i><b style="color:#e8efec">Checker</b><span>runs old and new,<br>compares every answer</span></div>
+<div class="b test" style="left:1160px;top:340px;color:#ff8a70"><i class="n">5</i><b style="color:#e8efec">Tester</b><span>different model,<br>tries to break it</span></div>
+<div class="b done" style="left:1380px;top:340px;color:#7ee081"><i class="n">6</i><b style="color:#e8efec">Kept</b><span>then hidden tests,<br>then export</span></div>
+
+<svg width="1600" height="760" style="position:absolute;left:0;top:0" fill="none" stroke="#9fb0aa" stroke-width="2.5">
+  <defs><marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b48cff" stroke="none"/></marker><marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff8a70" stroke="none"/></marker><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9fb0aa" stroke="none"/></marker></defs>
+  <!-- main flow -->
+  <path d="M220,388 H258" marker-end="url(#a)"/>
+  <path d="M440,388 H478" marker-end="url(#a)"/>
+  <path d="M880,388 H938" marker-end="url(#a)"/>
+  <path d="M1120,388 H1158" marker-end="url(#a)"/>
+  <path d="M1340,388 H1378" marker-end="url(#a)"/>
+  <!-- workers <-> expert -->
+  <path d="M680,338 V218" marker-start="url(#g)" marker-end="url(#g)" stroke="#b48cff"/>
+  <!-- planner -> expert -->
+  <path d="M350,338 V168 H478" marker-end="url(#g)" stroke="#b48cff"/>
+  <!-- checker -> workers (fail) -->
+  <path d="M1030,438 V540 H680 V438" marker-end="url(#r)" stroke="#ff8a70"/>
+  <!-- tester -> checker (broke it) -->
+  <path d="M1250,338 V250 H1030 V338" marker-end="url(#r)" stroke="#ff8a70"/>
+</svg>
+
+<div class="lbl" style="left:700px;top:252px;width:230px;text-align:left;color:#cdb6ff">questions go up,<br>rules come down</div>
+<div class="lbl" style="left:150px;top:196px;width:190px;text-align:right;color:#cdb6ff">flags where the two<br>languages differ</div>
+<div class="lbl" style="left:640px;top:556px;width:440px;color:#ffb3a1"><b style="color:#ff8a70">Failed.</b> Goes back with the input that broke it.<br>3 tries, then a stronger model, then a human.</div>
+<div class="lbl" style="left:1000px;top:190px;width:290px;color:#ffb3a1"><b style="color:#ff8a70">Broke it.</b> That input becomes<br>a permanent test.</div>
+<div class="lbl" style="left:40px;top:682px;width:1520px;font-size:19px;color:#e8efec">No agent can mark a function as done. <b style="color:#7ee081">Only the checker can.</b></div>
+</div></body></html>
