@@ -70,11 +70,11 @@ What one check looks like: the tester calls `soundex("Lloyd")` on both versions.
 
 **How the run adapts.** Nothing is a fixed script. The planner names the language differences it is worried about and the expert settles them before any worker starts. When the checker finds a mismatch, the failing input goes to the worker and to the expert, who can turn it into a rule for everyone. When a rule changes, functions already kept are rechecked under it, and a worker is only called back if one fails. When code doesn't compile, the expert reads the error and tells the worker the fix.
 
-**When things go wrong.** Three tries, then a stronger model, then the function is marked as needing a human, along with anything that calls it. A model call with no answer in 150 seconds is asked again. If the planner's plan is unusable, the run falls back to the declared order. A run that is cut off or hits its token budget keeps everything already proven and continues from there. A failed hidden test is reported and never shown to the agents, so the score can't be gamed.
+**When things go wrong.** A function gets three tries. If it still fails, a stronger model takes over. If that fails too, Parity stops and flags it for a human. If a model hangs, Parity asks again. If a run gets cut off, it picks up where it left off and keeps everything it already proved. The agents never see the hidden tests, so they can't cheat them.
 
-**Adding a language.** The workflow, the agents and the checker know nothing about Python, C or TypeScript. A language pair is a folder: the original code, empty target files, a command that runs the original, a command that builds and runs the new code, and the tests. A teammate added TypeScript to ArkTS that way during the hackathon, on a HarmonyOS emulator, with almost no change to the engine.
+**Adding a language.** None of the core code is tied to a language. To add one, you give Parity a folder with the original code, a way to run it, and a way to build and run the new code. That's how a teammate added TypeScript to ArkTS during the hackathon.
 
-**Limits.** Pure functions over numbers, text, true/false and lists. "Proven" means the same answer as the original on every input tried, inside a declared range. That is strong evidence, not a mathematical proof, and every report says so.
+**Limits.** Parity can't migrate everything. It only takes functions where the same input always gives the same output. Anything that reads a file, hits the network or changes something else is turned away. And it checks by testing, so it can't catch a bug on an input it never tried.
 
 Which parts of openJiuwen and WorkSwarm we use, what we wrote ourselves, and what each agent can and cannot touch: `ARCHITECTURE.md`.
 
