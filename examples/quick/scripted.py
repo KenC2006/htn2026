@@ -14,7 +14,7 @@ from build import DEMO, HERE, RUNS, copy_run, cut, load, write
 
 def _real_rejection(run: str, chunk: str, dest: str) -> dict:
     """The checker's own rejection event from a zz-wrong-* run, with the files the view reads for it copied across."""
-    src = RUNS / run
+    src = HERE / "wrong-runs" / run              # the checker's real output on the wrong code in quick/wrong
     event = next(e for e in load(src / "events.jsonl") if e["type"] == "candidate.rejected" and e["chunk_id"] == chunk)
     stem = event["attempt_id"].replace(":", "-")
     for folder in ("verdicts", "observations"):
@@ -59,7 +59,7 @@ def c_demo() -> None:
                                _real_rejection("zz-wrong-c", "F1", "quick-c"),
                                "In the C, buf is `char`, which is signed on this compiler, and the C masks with & 0x00FF for that reason. "
                                "`b as i8 as u16` sign-extends every byte over 127 and the table index runs past 255. Keep the mask: ((crc >> 8) ^ (b as u16)) & 0x00FF.")
-    built = next(e for e in load(RUNS / "zz-wrong-c" / "events.jsonl") if e["type"] == "candidate.rejected" and e["chunk_id"] == "F7")
+    built = next(e for e in load(HERE / "wrong-runs" / "zz-wrong-c" / "events.jsonl") if e["type"] == "candidate.rejected" and e["chunk_id"] == "F7")
     events = _compile_error_first(events, "F7", "target/hashlittle.rs", (wrong / "hashlittle.rs").read_text(encoding="utf-8"), built["payload"]["detail"])
     write("quick-c", events, "scripted replay: real code, real checker results, staged order", DEMO / ".parity" / "projects" / "redis", keep)
 
