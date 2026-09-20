@@ -2,7 +2,8 @@
 import json, sys
 from datetime import datetime
 from pathlib import Path
-root = Path(__file__).resolve().parents[1] / "runs"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from parity.paths import RUNS as root      # runs/ in the Parity repo, or .parity/runs in the folder you are working in
 print(f"{'run':<10}{'mode':<8}{'accepted':<10}{'gate_rejects':<14}{'stale':<7}{'questions':<11}{'probes':<8}{'decisions':<11}{'wall_s':<8}{'tokens':<9}{'cost_usd'}")
 for rid in sys.argv[1:]:
     ev = [json.loads(l) for l in (root / rid / "events.jsonl").open(encoding="utf-8")]

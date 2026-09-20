@@ -26,14 +26,15 @@ Add `bin` to PATH, go to the folder your Python is in, and type `parity`. Then:
     /mode python                 or /mode c: what you are migrating
     /check pricing.py            which functions can be migrated, and why not for the rest
     /migrate pricing.py          pick functions, tests get built from the original, the agents migrate it
-    /status                      what was kept
+    /status                      what was kept, and the hidden test score
     /export                      the proven Rust lands in ./pricing-rust/
+    /verify pricing.py their-rust    test a translation someone else wrote (Rust in their-rust/target): about a minute, no AI
 
 Commands take the file you name; there is no "current project". A file in the other language is refused until you switch the mode. C works the same way (`/mode c`, `/check crc64.c`, or a folder of `.c` files): the original is compiled with gcc.
 
 Your Python is never changed. The same words work without the console: `parity check pricing.py`, `parity migrate pricing.py`.
 
-`parity new` also takes a folder or a PyPI module name. It only accepts pure functions: anything that touches files, the clock, the network or shared state is refused with the reason. Python to Rust only. Everything it makes goes into `.parity/` in your folder.
+`parity new` also takes a folder or a PyPI module name. It only accepts pure functions: anything that touches files, the clock, the network or shared state is refused with the reason. "Proven" means: the same answers as the original on every input tried, inside the input range the project declares. It is testing, not a mathematical proof, and every receipt says so. Everything it makes goes into `.parity/` in your folder.
 
 ### Who does what
 
@@ -45,7 +46,7 @@ Your Python is never changed. The same words work without the console: `parity c
 | tester | makes up inputs to break a function that passed; what it finds becomes a permanent test |
 | checker (plain code, not AI) | compiles, runs old and new on the same inputs, compares. Nothing else can accept a function |
 
-A function that runs out of tries moves up to a stronger model (`ESCALATE_MODELS`). After a run, hidden inputs no agent saw are run once. More in `ARCHITECTURE.md`; the project folder format is in `CONTRACTS.md`.
+A function that runs out of tries moves up to a stronger model (`ESCALATE_MODELS`). At the end of a run, hidden inputs no agent saw are run once on what was kept. A run that is cut off (closed terminal, killed process) keeps what it had: `/migrate` on the same file continues it, and so does `parity run <project> --run-id <id> --resume`. A model call that gets no answer in 150 seconds is asked again (`MODEL_TIMEOUT`). More in `ARCHITECTURE.md`; the project folder format is in `CONTRACTS.md`.
 
 Built on Huawei's SwarmFlow engine and openJiuwen agents (WorkSwarm 0.2.6). Models come from OpenRouter.
 
