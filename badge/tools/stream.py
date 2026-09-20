@@ -4,8 +4,9 @@
   python stream.py --region X Y W H   # capture a specific window rectangle
 
 Join the badge's Wi-Fi ("BadgeCraft", password "minecraft") first, then run this.
-Sends 320x240 RGB565 frames (big-endian for the ST7789), one full frame back to back.
-Needs: pip install mss numpy pillow
+Sends 320x240 JPEG frames, length-prefixed, one at a time: the next frame is grabbed
+only after the badge acks the last one, so frames never queue up and lag.
+Needs: pip install pillow   (Windows only: capture and input use Win32)
 """
 import argparse
 import io
@@ -15,8 +16,7 @@ import struct
 import threading
 import time
 
-from mss import mss
-from PIL import Image
+import wincapture
 
 W, H = 320, 240
 HOST, PORT = "192.168.4.1", 3333
@@ -26,13 +26,31 @@ def _s8(b):
     return b - 256 if b > 127 else b
 
 
-def input_receiver(sock, args, stop):
-    """Read button packets from the badge and drive Minecraft (accelerometer unused).
+class Acks:
+    """frames_rx from the badge: how many frames it has taken off the wire (mod 256)."""
+    def __init__(self):
+        self.cond = threading.Condition()
+        self.count = 0
+
+    def update(self, n):
+        with self.cond:
+            if n != self.count:
+                self.count = n
+                self.cond.notify_all()
+
+    def wait_for(self, n, timeout):
+        """Wait until the badge has taken frame n. False = timed out (send anyway)."""
+        with self.cond:
+            return self.cond.wait_for(lambda: self.count == n, timeout)
+
+
+def input_receiver(sock, args, stop, acks):
+    """Read status packets from the badge: frame acks, and buttons to drive Minecraft.
 
     D-pad          -> walk (W/S/A/D)
     HOME + D-pad   -> look (move the mouse: HOME+L/R = look sideways, HOME+U/D = up/down)
     START -> jump   A -> attack (hold = break)   B -> place
-    Packet: 0xAA, x, y, z, buttons, 0x55.  Button bits: UP0 DOWN1 LEFT2 RIGHT3 A4 B5 START6 HOME7.
+    Packet: 0xAA, buttons, frames_rx, 0x55.  Button bits: UP0 DOWN1 LEFT2 RIGHT3 A4 B5 START6 HOME7.
     """
     import wininput as win
     keys = {}
@@ -69,14 +87,18 @@ def input_receiver(sock, args, stop):
                 break
             buf += data
             while True:
-                i = buf.find(b"\xAA")           # packet: 0xAA, buttons, 0x55
+                i = buf.find(b"\xAA")           # packet: 0xAA, buttons, frames_rx, 0x55
                 if i < 0:
                     buf = b""; break
-                if len(buf) - i < 3:
+                if len(buf) - i < 4:
                     buf = buf[i:]; break
-                if buf[i + 2] != 0x55:
+                if buf[i + 3] != 0x55:
                     buf = buf[i + 1:]; continue  # false sync byte, resync
-                btn = buf[i + 1]; buf = buf[i + 3:]
+                btn = buf[i + 1]
+                acks.update(buf[i + 2])
+                buf = buf[i + 4:]
+                if not args.controls:
+                    continue
                 up    = bool(btn & (1 << BTN_UP))
                 down  = bool(btn & (1 << BTN_DOWN))
                 left  = bool(btn & (1 << BTN_LEFT))
@@ -112,14 +134,21 @@ def input_receiver(sock, args, stop):
         hold_mouse(False, False)
 
 
-def stream_once(s, args, sct, mon, sw, sh, min_dt, deadline):
+def stream_once(s, args, cap, min_dt, deadline, acks):
     """Grab/encode/send frames until the socket drops (raises OSError) or deadline.
-    Returns the number of frames sent this connection."""
+    Returns the number of frames sent this connection.
+
+    One frame in flight at a time: the screen is grabbed only after the badge has
+    taken the previous frame, so frames never queue in the TCP buffers and what the
+    badge shows is always the newest picture, not one from a second ago."""
     sent, frames, bytes_sent, t0 = 0, 0, 0, time.time()
+    frame_t, lat_sum = 0.0, 0.0
     while deadline is None or time.time() < deadline:
+        if sent:
+            acks.wait_for(sent & 0xFF, 1.0)      # timed out = badge stalled; send anyway
+            lat_sum += time.time() - frame_t     # screen grab -> frame on the badge
         frame_t = time.time()
-        raw = sct.grab(mon)
-        img = Image.frombytes("RGB", raw.size, raw.rgb).resize((sw, sh))
+        img = cap.grab()
         q = args.quality
         while True:
             buf = io.BytesIO()
@@ -131,8 +160,9 @@ def stream_once(s, args, sct, mon, sw, sh, min_dt, deadline):
         s.sendall(struct.pack("<I", len(data)) + data)   # length-prefixed frame
         sent += 1; frames += 1; bytes_sent += len(data)
         if time.time() - t0 >= 1.0:
-            print(f"{frames} fps sent (~{bytes_sent // max(frames, 1) // 1024} KB/frame)")
-            frames, bytes_sent, t0 = 0, 0, time.time()
+            print(f"{frames} fps sent (~{bytes_sent // max(frames, 1) // 1024} KB/frame, "
+                  f"grab->badge {lat_sum / max(frames, 1) * 1000:.0f} ms)")
+            frames, bytes_sent, lat_sum, t0 = 0, 0, 0.0, time.time()
         if min_dt:                               # pace the send rate
             slack = min_dt - (time.time() - frame_t)
             if slack > 0:
@@ -148,6 +178,7 @@ def main():
     ap.add_argument("--log", help="write an fps summary line to this file on exit")
     ap.add_argument("--quality", type=int, default=50, help="JPEG quality 1-95 (lower = smaller/faster)")
     ap.add_argument("--scale", type=int, default=1, help="downscale factor: 1=320x240 (sharp), 2=160x120 (badge upscales, faster)")
+    ap.add_argument("--stretch", action="store_true", help="fill the whole 320x240 screen (distorts 16:9, slower decode)")
     ap.add_argument("--fps", type=float, default=0, help="cap send rate to N fps (0 = uncapped); lowers badge CPU/current")
     ap.add_argument("--controls", action="store_true", help="drive Minecraft from badge tilt (WASD)")
     ap.add_argument("--look", type=float, default=22, help="cursor pixels per tick while HOME is held")
@@ -157,14 +188,22 @@ def main():
     ap.add_argument("--invx", action="store_true", help="invert left/right")
     ap.add_argument("--invy", action="store_true", help="invert forward/back")
     args = ap.parse_args()
-    sw, sh = W // args.scale, H // args.scale
     min_dt = 1.0 / args.fps if args.fps else 0.0
 
-    sct = mss()
-    mon = sct.monitors[1]
+    mon = wincapture.primary_monitor()
     if args.region:
         x, y, w, h = args.region
         mon = {"left": x, "top": y, "width": w, "height": h}
+
+    # Keep the screen's shape: a 16:9 screen goes out as 320x176 and the badge
+    # centres it with black bars. Undistorted, and 27% fewer pixels for the badge
+    # to decode than stretching to 320x240. Height is a multiple of 16 (JPEG blocks).
+    sw, sh = W, H
+    if not args.stretch:
+        sh = min(H, max(16, round(W * mon["height"] / mon["width"] / 16) * 16))
+    sw, sh = sw // args.scale, sh // args.scale
+    cap = wincapture.Capture(mon["left"], mon["top"], mon["width"], mon["height"], sw, sh)
+    print(f"sending {sw}x{sh}")
 
     start = time.time()
     deadline = start + args.seconds if args.seconds else None
@@ -181,13 +220,13 @@ def main():
             s.settimeout(6)     # a stalled send fails in 6s -> reconnect, never hang
             print("connected - streaming (Ctrl-C to stop)")
             stop = threading.Event()
-            rx = None
+            acks = Acks()
+            rx = threading.Thread(target=input_receiver, args=(s, args, stop, acks), daemon=True)
+            rx.start()                           # always on: it also carries the frame acks
             if args.controls:
-                rx = threading.Thread(target=input_receiver, args=(s, args, stop), daemon=True)
-                rx.start()
                 print("controls ON - focus Minecraft")
             try:
-                total_frames += stream_once(s, args, sct, mon, sw, sh, min_dt, deadline)
+                total_frames += stream_once(s, args, cap, min_dt, deadline, acks)
             except OSError as e:
                 print(f"connection lost ({type(e).__name__}) - reconnecting...")
             finally:

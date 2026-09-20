@@ -12,6 +12,16 @@ CONFIG_PARTITION_TABLE_SINGLE_APP=y
 
 CONFIG_FREERTOS_HZ=1000
 
+# TCP receive window bigger than one JPEG frame (~6-12 KB; default is 5.7 KB), so
+# the whole next frame lands while the current one decodes instead of part of it
+# waiting on the laptop until we start reading.
+CONFIG_LWIP_TCP_WND_DEFAULT=16384
+CONFIG_LWIP_TCP_RECVMBOX_SIZE=16
+
+# -O2 instead of the default -Og: the per-pixel RGB888 -> RGB565 conversion in
+# out_func runs 76,800 times a frame and is on the latency path.
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
 # This badge runs off 2x AA through a boost converter (USB doesn't power the rail).
 # Wi-Fi TX current spikes on tired batteries sag the rail and trip the brownout
 # detector, rebooting mid-stream. Relax the threshold to the lowest level so the

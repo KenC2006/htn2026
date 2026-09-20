@@ -12,6 +12,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
@@ -70,10 +71,19 @@ static size_t in_func(JDEC *jd, uint8_t *out, size_t n) {
 
 // --- JPEG output sink: assemble decoded blocks into a band, blit per band -----
 static int band_cur = 0, band_top = -1, band_ht = 0;
+static int y_off = 0;       // frames shorter than the screen (16:9) are centred
+
+// The laptop sends the next frame when we ack this one. Acking part-way through
+// the decode (rather than at the start) means the laptop grabs its screen later, so
+// the next frame arrives about when we finish instead of ageing in the TCP buffer.
+// The point is fixed by us, not measured, so it cannot drift.
+#define ACK_AT_PERCENT 40
+static int ack_row;
+static void frame_ack(void);
 
 static void band_flush(void) {
     if (band_ht > 0) {
-        esp_lcd_panel_draw_bitmap(panel, 0, band_top, LCD_W, band_top + band_ht, band[band_cur]);
+        esp_lcd_panel_draw_bitmap(panel, 0, y_off + band_top, LCD_W, y_off + band_top + band_ht, band[band_cur]);
         band_cur ^= 1;   // ping-pong; trans_queue_depth 2 keeps the DMA race-free
     }
 }
@@ -93,7 +103,10 @@ static UINT out_func(JDEC *jd, void *bitmap, JRECT *r) {
         }
         return 1;
     }
-    if (r->top != band_top) { band_flush(); band_top = r->top; }
+    if (r->top != band_top) {
+        band_flush(); band_top = r->top;
+        if (r->top >= ack_row) frame_ack();   // ask for the next frame mid-decode
+    }
     band_ht = h;
     for (int row = 0; row < h; row++) {
         uint8_t *dst = &band[band_cur][(row * LCD_W + r->left) * 2];
@@ -124,6 +137,15 @@ static void upscale_blit(void) {
     }
 }
 
+// Paint rows [y0, y1) black, a band at a time (the letterbox bars).
+static void blank_rows(int y0, int y1) {
+    memset(band[0], 0, sizeof(band[0]));
+    for (int y = y0; y < y1; y += BAND_H) {
+        int h = (y1 - y < BAND_H) ? y1 - y : BAND_H;
+        esp_lcd_panel_draw_bitmap(panel, 0, y, LCD_W, y + h, band[0]);
+    }
+}
+
 static bool draw_jpeg(const uint8_t *buf, size_t len) {
     jsrc_t src = { .buf = buf, .len = len, .pos = 0 };
     JDEC jd;
@@ -131,6 +153,14 @@ static bool draw_jpeg(const uint8_t *buf, size_t len) {
     band_cur = 0; band_top = -1; band_ht = 0;
     to_fb = (jd.width <= FB_MAX_W && jd.height <= FB_MAX_H && jd.width < LCD_W);
     if (to_fb) { fb_w = jd.width; fb_h = jd.height; }
+    int off = (!to_fb && jd.height < LCD_H) ? (LCD_H - jd.height) / 2 : 0;
+    if (off != y_off) {                 // frame size changed: blank the bars once
+        y_off = off;
+        blank_rows(0, y_off);
+        blank_rows(y_off + jd.height, LCD_H);
+        band_cur = 1;                   // band[0] may still be on the wire as black
+    }
+    ack_row = jd.height * ACK_AT_PERCENT / 100;
     JRESULT rc = jd_decomp(&jd, out_func, 0);
     if (to_fb) upscale_blit();
     else       band_flush();            // full-res: last band
@@ -257,16 +287,38 @@ static uint8_t read_buttons(void) {
 // Poll the buttons ~30x/s and send a 3-byte packet. Sent every tick (not just on
 // change) so the laptop can apply continuous HOME+D-pad mouse-look; it's only
 // ~90 B/s. TCP is full-duplex so this coexists with the frame recv loop.
-// Packet: 0xAA, buttons, 0x55.
+// Packet: 0xAA, buttons, frames_rx, 0x55.
+//
+// frames_rx is the flow control. The laptop can encode ~30 fps but we decode ~9,
+// so without it the surplus frames pile up in the TCP buffers and the picture runs
+// about a second behind the game. The laptop sends the next frame only once
+// frames_rx shows we took the last one, so nothing queues and every frame is fresh.
 static volatile int input_sock = -1;
+static volatile uint8_t frames_rx;
+static SemaphoreHandle_t send_lock;
+
+static void send_status(void) {
+    int s = input_sock;
+    if (s < 0) return;
+    xSemaphoreTake(send_lock, portMAX_DELAY);
+    uint8_t pkt[4] = { 0xAA, read_buttons(), frames_rx, 0x55 };
+    send(s, pkt, sizeof(pkt), 0);                  // errors are harmless; recv loop owns teardown
+    xSemaphoreGive(send_lock);
+}
+
+// Ack the frame being handled, once. Called mid-decode, and again after it as a
+// backstop (half-res path, a frame that failed to decode, or one we skipped).
+static bool frame_acked;
+static void frame_ack(void) {
+    if (frame_acked) return;
+    frame_acked = true;
+    frames_rx++;
+    send_status();
+}
 
 static void input_task(void *arg) {
     while (1) {
-        int s = input_sock;
-        if (s >= 0) {
-            uint8_t pkt[3] = { 0xAA, read_buttons(), 0x55 };
-            send(s, pkt, sizeof(pkt), 0);          // errors are harmless; recv loop owns teardown
-        }
+        send_status();
         vTaskDelay(pdMS_TO_TICKS(33));
     }
 }
@@ -308,7 +360,8 @@ static void stream_server(void) {
         setsockopt(c, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
         struct timeval tv = { .tv_sec = 5, .tv_usec = 0 };   // drop a dead client, re-accept
         setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        input_sock = c;                       // start feeding tilt/buttons back
+        frames_rx = 0;
+        input_sock = c;                       // start feeding buttons + frame acks back
         ESP_LOGI(TAG, "client connected - streaming MJPEG");
         int frames = 0, decoded = 0;
         int64_t recv_us = 0, draw_us = 0;
@@ -321,12 +374,16 @@ static void stream_server(void) {
             if (len == 0) continue;
             if (len > JPEG_BUF_SZ) {              // too big to buffer: skip it, keep streaming
                 ESP_LOGW(TAG, "skipping oversized frame: %u bytes", (unsigned)len);
+                frame_acked = false;
                 if (recv_discard(c, len) <= 0) break;
+                frame_ack();
                 continue;
             }
             if (recv_all(c, jpeg_buf, len) <= 0) break;
+            frame_acked = false;
             int64_t tb = esp_timer_get_time();
             if (draw_jpeg(jpeg_buf, len)) decoded++;
+            frame_ack();                          // backstop if the decode never reached ack_row
             int64_t tc = esp_timer_get_time();
             frames++;
             recv_us += tb - ta;
@@ -351,6 +408,7 @@ void app_main(void) {
     wifi_softap();
     ESP_LOGI(TAG, "free heap: %u bytes", (unsigned)esp_get_free_heap_size());
     buttons_init();
+    send_lock = xSemaphoreCreateMutex();
     xTaskCreate(input_task, "input", 3072, NULL, 4, NULL);
     stream_server();
 }
