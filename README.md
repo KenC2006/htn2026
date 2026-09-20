@@ -106,12 +106,18 @@ Lua apps for the stock firmware, pushed with `tools/deploy.py`:
 | `cbradio/` | CB-radio text chat between badges |
 | `probe/` | a scratch app for trying things |
 
-## ArkTS route (in development)
+## ArkTS route
 
 The verified DevEco smoke app is in [experiments/arkts-smoke](experiments/arkts-smoke/README.md).
 The [TypeScript-to-ArkTS implementation plan](docs/TS_TO_ARKTS_PLAN.md) maps it
-onto Parity's existing Python-to-Rust runner and gate architecture. A first
-profile (`fixtures/telemetry-workbench/ts-arkts-core`, three hand-ported
-functions) runs and verifies on the real HarmonyOS emulator end-to-end; the
-agent-driven migration workflow and automatic TypeScript onboarding are not
-implemented yet.
+onto Parity's existing Python-to-Rust runner and gate architecture. A hand-ported
+three-function profile (`fixtures/telemetry-workbench/ts-arkts-core`) runs and
+verifies on the real HarmonyOS emulator end-to-end, including a full autonomous
+SwarmFlow migration run. `python -m parity new <file.ts>` ([design](docs/TS_ONBOARDING_PLAN.md))
+now does this automatically for a single TypeScript file: it statically scans it with the
+TypeScript compiler API, settles input ranges, runs the real file under Node to
+learn its true behavior, and writes a project in the same format as the Python
+route — verified on the real emulator with a generated (not hand-authored)
+two-function project, both a correct and an incorrect ArkTS candidate. Folders/
+packages, arrow functions/classes, generics, npm dependencies and async code
+are not supported yet.

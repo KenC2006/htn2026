@@ -93,7 +93,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 
 - Records: `{"type": "list[tuple]", "max_items": 200, "fields": [rule, rule, ...]}` declares a list of fixed-length records, one rule per field; text rules also take `min_len`. `fixtures/telemetry-workbench/py-rust-batch/chunks/P2.json` is a full example.
 - Give pieces that do not share a convention **separate contracts**. A ruling bumps its contract's version and makes every piece on that contract stale; on the first real-library run one shared contract for six unrelated functions meant each ruling threw away the others' work.
-- `python -m parity new <python file | folder | module>` writes all of the above for Python to Rust (see README). Its `input_domain` rules are typed: `type` (`int`, `float`, `str`, `bool`, `list`), `min`, `max`, `max_len`, `choices`, `nullable`, `max_items`, `alphabet`; `parity/engine/domain.py::in_domain` enforces them for the tester and the expert alike.
+- `python -m parity new <python file | folder | module>` writes all of the above for Python to Rust (see README). `python -m parity new <file.ts>` does the same for a single TypeScript file, to ArkTS (see `docs/TS_ONBOARDING_PLAN.md`). Its `input_domain` rules are typed: `type` (`int`, `float`, `str`, `bool`, `list`), `min`, `max`, `max_len`, `choices`, `nullable`, `max_items`, `alphabet`; `parity/engine/domain.py::in_domain` enforces them for the tester and the expert alike.
 
 ### Contracts: `fixtures/telemetry-workbench/<profile>/contracts/<contract_id>.json`
 

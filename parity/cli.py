@@ -2,7 +2,8 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
-  new <file|folder|module>    make a project from real Python code: finds the functions that can be migrated, builds inputs and the Rust scaffold
+  new <file|folder|module>    make a project from real code: finds the functions that can be migrated, builds inputs and the target-language scaffold
+                                (Python file/folder/module -> Rust; a single TypeScript file -> ArkTS)
   run <profile_dir> [--resume --run-id X]   migrate with the agent team; --resume continues an interrupted run
   check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
@@ -131,9 +132,13 @@ def scan(ns: argparse.Namespace) -> int:
 # ───────────────────────── new ─────────────────────────
 
 def find_source(what: str) -> Path:
-    """A path, or the name of an installed module (humanize.number). Unknown names are downloaded from PyPI into projects/_downloads."""
+    """A path, or the name of an installed Python module (humanize.number); unknown Python names are
+    downloaded from PyPI into projects/_downloads. TypeScript has no package-name route yet
+    (docs/TS_ONBOARDING_PLAN.md): a .ts source must already exist as a file."""
     if Path(what).exists():
         return Path(what).resolve()
+    if what.endswith(".ts"):
+        sys.exit(f"no such file: {what}")
     import importlib.util
     top = what.split(".")[0]
     try:
@@ -162,9 +167,14 @@ def find_source(what: str) -> Path:
 
 
 def new(ns: argparse.Namespace) -> int:
-    from .newproject import create
-    from .scan_python import scan
     source = find_source(ns.source)
+    is_ts = source.is_file() and source.suffix == ".ts"
+    if is_ts:
+        from .newproject_ts import create_ts as create
+        from .scan_typescript import scan
+    else:
+        from .newproject import create
+        from .scan_python import scan
     functions = scan(source)
     can = [f for f in functions if f.ok]
     print(f"{source}\n  {len(can)} of {len(functions)} functions can be migrated\n")
@@ -174,7 +184,7 @@ def new(ns: argparse.Namespace) -> int:
     if ns.list or not can:
         return 0 if can else 1
     chosen = [n.strip() for n in ns.functions.split(",")] if ns.functions else None
-    name = ns.name or re.sub(r"[^a-z0-9]+", "-", ns.source.replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+    name = ns.name or project_name(ns.source)
     print()
     create(source, name, chosen, use_ai=not ns.no_ai)
     print(f"\nNext: parity run {name}")
@@ -482,7 +492,10 @@ def export(ns: argparse.Namespace) -> int:
 
 def project_name(source: str) -> str:
     import re
-    return re.sub(r"[^a-z0-9]+", "-", source.replace("\\", "/").rstrip("/").split("/")[-1].removesuffix(".py").lower()).strip("-")
+    stem = source.replace("\\", "/").rstrip("/").split("/")[-1]
+    for suffix in (".py", ".ts"):
+        stem = stem.removesuffix(suffix)
+    return re.sub(r"[^a-z0-9]+", "-", stem.lower()).strip("-")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -490,7 +503,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         from .shell import shell
         return shell()
-    if argv[0] == "check" and len(argv) == 2 and argv[1].endswith(".py"):      # parity check file.py: what can be migrated?
+    if argv[0] == "check" and len(argv) == 2 and argv[1].endswith((".py", ".ts")):  # parity check file.py|ts: what can be migrated?
         argv = ["new", argv[1], "--list"]
     if argv[0] == "migrate" and len(argv) >= 2:                                 # parity migrate file.py [folder]
         name = project_name(argv[1])
@@ -503,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("doctor").set_defaults(fn=doctor)
     p = sub.add_parser("scan"); p.add_argument("profile_dir"); p.set_defaults(fn=scan)
-    p = sub.add_parser("new", help="make a project from real Python code: a file, a folder, or a module name such as humanize.number")
+    p = sub.add_parser("new", help="make a project from real code: a Python file/folder/module (humanize.number) or a single TypeScript file (.ts)")
     p.add_argument("source"); p.add_argument("--name"); p.add_argument("--functions", help="comma-separated; default: every public function that qualifies")
     p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
     p.set_defaults(fn=new)

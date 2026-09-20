@@ -8,7 +8,9 @@ planner, workers, a steward clarification and an adversarial tester all ran
 for real, all three chunks (`bucketStart`, `clampValue`, `summarizeBuckets`)
 were accepted, and the single-use locked evaluation passed 146 of 146 hidden
 cases (see `runs/arkts-agent-1/export/report.md`, gitignored). Automatic TS
-onboarding (step 6) is not implemented yet.
+onboarding (step 6, `python -m parity new <file.ts>`) is now implemented too;
+see `docs/TS_ONBOARDING_PLAN.md` for its design and step 6 below for the
+device proof.
 Reference checkout: `37802f26cd53f6aba783bea41d437d9476bb26b7` (2026-09-19).
 Scope: Python-to-Rust is the implementation reference, per the user's direction.
 
@@ -218,14 +220,16 @@ candidate core modules must not import logging, platform I/O or source code.
   Python value equality is not a universal JS equivalence checker (e.g. bool
   vs number). Enforce output shape/type in the trusted adapters, and add
   strict type comparison if extending to mixed-type results.
-- CLI `new`/`migrate` and console/export wording still assume Python/Rust.
-  The first milestone uses explicit `scan`, `run`, `check`, `export` profile
-  commands. Update language-aware discovery/doctor/export in the later CLI
-  phase rather than claiming `.ts` inputs already work.
+- ~~CLI `new`/`migrate` and console/export wording still assume Python/Rust.~~
+  Resolved in step 6: `parity/cli.py`'s `new`, `find_source` and
+  `project_name` route a `.ts` file to `newproject_ts.create_ts`/
+  `scan_typescript.scan` instead of the Python pair; `run`/`check`/`watch`/
+  `status`/`evaluate`/`export` needed no changes since they only read
+  `profile.json`'s shape, which is identical either way.
 
 ## Delivery order and acceptance checks
 
-Steps 1-5 are done and reverified in this checkout; step 6 is not started.
+Steps 1-6 are done and reverified in this checkout.
 
 1. **Foundation: done.** Ran the copied smoke project from the new checkout. Recorded
    the real runtime marker (`ARKTS_SMOKE_PASS:10`); validated public template and ignored signing files.
@@ -264,12 +268,49 @@ Steps 1-5 are done and reverified in this checkout; step 6 is not started.
    `.venv-swarm` (`pip install workswarm==0.2.6`, brings in `openjiuwen`) and
    `env/secrets.env` with a real OpenRouter key; run `python -m parity doctor`
    first.
-6. **TS onboarding:** Only now add `scan_typescript`, ArkTS templates and
-   language-aware CLI routing. Use the TypeScript compiler AST/type checker
-   for exports, signatures and call dependencies, conservatively reject
-   unsupported features, and report reasons. Freeze reachable source helpers
-   as part of the oracle. Probe determinism and serialization before creating
-   manifests. Support named functions in one file before packages.
+6. **TS onboarding: done.** `parity/scan_typescript.py` + `parity/ts_arkts/scan.cjs`
+   statically scan one `.ts` file with the TypeScript compiler API (the same
+   pinned compiler DevEco builds ArkTS with): named function declarations only,
+   conservative purity rules (mirroring `scan_python.py`'s `IMPURE_*`), and a
+   dependency closure over same-file helper calls, each with a human-readable
+   `reason` when a function can't be migrated. `parity/newproject_ts.py::create_ts`
+   reuses `newproject.py`'s language-agnostic range/case machinery
+   (`rules_for`, `make_value`, `make_cases`, `suggest`) unchanged, runs the real
+   `.ts` file under Node twice to confirm determinism and derive each
+   function's real return shape and error codes (never guessed), and writes a
+   project in the exact shape `CONTRACTS.md`/the gate expect. Per-project
+   generation is down to three files (`runners/dispatch.json`,
+   `entryability/EntryAbility.ets`, each `target/<fn>.ets` placeholder); every
+   other runner (`common.py`, `build.py`, `target.py`, `signing.cjs`,
+   `source.py`, `source_runner.cjs`, `policy.cjs`) and the whole DevEco app
+   shell (`parity/ts_arkts/harness_template/`) are static, shared templates,
+   generalized from the hand-authored `ts-arkts-core` fixture (see
+   `docs/TS_ONBOARDING_PLAN.md`). `parity/cli.py`'s `new`/`find_source`/
+   `project_name` now route `.ts` files to this pipeline while the Python
+   route is untouched. Verified on the real emulator: generated a two-function
+   project from a throwaway `.ts` file (`clampAll`, `shout`), then
+   `python -m parity check <project> <candidates> --no-tester` on a
+   hand-written correct candidate got both chunks **ACCEPTED** with **200 of
+   200 hidden cases** matching, and a wrong candidate was correctly
+   **REJECTED** with a real counterexample — proving the *generated* (not
+   hand-authored) harness/runners build, sign, install and round-trip real
+   observations on hardware. Along the way the differential check caught a
+   genuine bug in a hand-written "good" candidate (an eager bounds check that
+   fired even for an empty input array, unlike the original's per-element
+   check), which is exactly the failure mode this whole route exists to catch.
+   Two bugs fixed during that proof: the local debug signing certificate is
+   issued for one fixed bundleName, so every generated project's `app.json5`
+   reuses it (`com.ratchet.arkts.smoke` by default, `PARITY_ARKTS_BUNDLE` to
+   override) instead of a derived per-project one; and the generic
+   `common.py::validate_observation`'s numeric-shape check (copied from the
+   fixture's `T1`/`T2`/`T3`-specific version, which only ever saw whole
+   numbers) rejected legitimate fractional results until it was generalized to
+   "finite JS number", not "whole number". Host-only tests:
+   `tests/test_scan_typescript.py`, `tests/test_new_ts.py`. Not yet supported
+   (see `docs/TS_ONBOARDING_PLAN.md`'s non-goals): folders/packages, arrow
+   functions/classes, generics, npm dependencies, async code, `any`/union
+   types beyond optional, tuple/object parameters, null/undefined return
+   values.
 
 No-model fixture validation commands after implementation:
 

@@ -61,6 +61,9 @@ def default_rule(f: Function, p, kind: str) -> dict:
 
 
 def _default_value(f: Function, name: str):
+    defaults = getattr(f, "defaults", None)   # non-Python Function subclasses (e.g. scan_typescript.Function)
+    if defaults is not None:                  # report their own literal defaults instead of Python AST
+        return defaults.get(name, ...)
     import ast
     node = ast.parse(f.source.lstrip()).body[0] if not f.source.startswith(" ") else None
     if node is None:
