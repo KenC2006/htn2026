@@ -47,6 +47,7 @@ COMMANDS = [
     ("/verify <file> [folder] [--attack]", "test a translation of that file that someone else wrote (in <folder>/target; no folder: the Rust Parity wrote): "
                                            "fixed and hidden tests, about a minute. --attack adds the AI tester. "
                                            "A folder instead of a file: every file in it that has tests, its Rust in <folder>/<name>/target"),
+    ("/demo [python|c|arkts]", "a one-minute replay that shows a failure being caught and fixed (made by examples/quick/build.py)"),
     ("/runs", "recent runs"),
     ("/status [run | file]", "result of a run; with a file, the newest run on it"),
     ("/export [run | file]", "put the proven new code in this folder, with a report"),
@@ -492,6 +493,13 @@ def handle(line: str, state: dict) -> bool:
             run_id = rows[i]["id"] if i is not None else None
         if run_id:
             _call([cmd, run_id])
+    elif cmd == "demo":
+        which = (args[0].lower() if args else {"python": "python", "c": "c", "arkts": "arkts"}.get(state.get("mode", "python"), "python"))
+        speed = {"python": "3.5", "c": "2", "arkts": "1.8"}.get(which)
+        if speed is None or not (RUNS / f"quick-{which}" / "events.jsonl").exists():
+            console.print("  /demo python, /demo c or /demo arkts.  They are built once with: python quick/build.py  (see examples/quick)")
+        else:
+            _call(["watch", f"quick-{which}", "--replay", "--speed", speed])
     elif cmd == "runs":
         show_runs()
     elif cmd in ("models", "model"):
