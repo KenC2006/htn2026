@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "chunk_id": "T3",
+  "profile": "ts-arkts-core",
+  "source_files": [
+    "legacy/SummarizeBuckets.ts"
+  ],
+  "exports": [
+    "summarizeBuckets"
+  ],
+  "write_allowlist": [
+    "target/SummarizeBuckets.ets"
+  ],
+  "depends_on": [
+    "T1"
+  ],
+  "contract_ids": [
+    "numeric-v1",
+    "bucket-v1"
+  ],
+  "worker_notes": "export function summarizeBuckets(timestamps: number[], widthMs: number): number[][]. Pure synchronous numeric code only. Throw new Error(\"INVALID_WIDTH\") for widthMs <= 0; clamp throws new Error(\"INVALID_BOUNDS\") for lower > upper. Summary returns [bucketStart,count] pairs sorted by bucket start and must import { bucketStart } from \"./BucketStart\". No other imports, platform APIs, dynamic execution, or module-level effects.",
+  "limits": {
+    "attempts": 3,
+    "verify_seconds_per_attempt": 300
+  },
+  "example_input": {
+    "timestamps": [
+      -1,
+      0,
+      1
+    ],
+    "widthMs": 10
+  },
+  "input_domain": {
+    "timestamps": {
+      "type": "list[int]",
+      "min": -1000000,
+      "max": 1000000,
+      "max_items": 32
+    },
+    "widthMs": {
+      "type": "int",
+      "min": -2,
+      "max": 10000
+    }
+  }
+}

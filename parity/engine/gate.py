@@ -285,7 +285,7 @@ def check(profile_dir: Path, chunk_id: str, candidate: dict, cases_path: Path, r
 
     # 5. Build with the real target compiler.
     if profile.get("build_target"):
-        argv = profile["build_target"]
+        argv = profile.get("compile_target", profile["build_target"]) if stop_after_build else profile["build_target"]
         pre = {f for f in ws.rglob("*") if f.is_file()}
         which = shutil.which(argv[0]) or argv[0]
         key = _sha(json.dumps([argv, which, os.path.getmtime(which) if os.path.exists(which) else 0,

@@ -183,7 +183,21 @@ def new(ns: argparse.Namespace) -> int:
 
 # ───────────────────────── run ─────────────────────────
 
+def _preflight(profile_dir: Path) -> bool:
+    from .engine.gate import _run
+    profile, _ = _load_profile(profile_dir)
+    if not profile.get('preflight'):
+        return True
+    code, log = _run(profile['preflight'], profile_dir, 30)
+    if code != 0:
+        print('Environment preflight failed before verification or agent calls:\n' + log)
+        return False
+    return True
+
+
 def run(ns: argparse.Namespace) -> int:
+    if not _preflight(project_dir(ns.profile_dir)):
+        return 1
     run_id = ns.run_id or datetime.now().strftime("run-%m%d-%H%M%S")
     script = ROOT / "workflows" / "migrate.py"
     if (RUNS / run_id / "events.jsonl").exists() and not ns.resume:
@@ -228,6 +242,8 @@ def check(ns: argparse.Namespace) -> int:
     if (run_dir / "events.jsonl").exists():
         sys.exit(f"run {run_id} already exists; choose another --run-id.")
     profile, chunks = _load_profile(profile_dir)
+    if not _preflight(profile_dir):
+        return 1
     events = EventLog(run_dir, run_id)
     gate.freeze(profile_dir)
     ledger = ContractLedger(profile_dir, run_dir, chunks, events)

@@ -23,11 +23,13 @@ Fable's one miss didn't compile, and its own notes didn't mention it. Parity fou
 
 Add `bin` to PATH, go to the folder your Python is in, and type `parity`. Then:
 
+    /mode python                 or /mode c: what you are migrating
     /check pricing.py            which functions can be migrated, and why not for the rest
     /migrate pricing.py          pick functions, tests get built from the original, the agents migrate it
-    /migrate pricing.py <folder> start from a translation you already have; agents fix only what fails
-    /verify <folder>             test a translation someone else wrote, no agents
+    /status                      what was kept
     /export                      the proven Rust lands in ./pricing-rust/
+
+Commands take the file you name; there is no "current project". A file in the other language is refused until you switch the mode. C works the same way (`/mode c`, `/check crc64.c`, or a folder of `.c` files): the original is compiled with gcc.
 
 Your Python is never changed. The same words work without the console: `parity check pricing.py`, `parity migrate pricing.py`.
 
@@ -105,3 +107,13 @@ Lua apps for the stock firmware, pushed with `tools/deploy.py`:
 | `snitch/` | a name tag that tells on you |
 | `cbradio/` | CB-radio text chat between badges |
 | `probe/` | a scratch app for trying things |
+
+## ArkTS route (in development)
+
+The verified DevEco smoke app is in [experiments/arkts-smoke](experiments/arkts-smoke/README.md).
+The [TypeScript-to-ArkTS implementation plan](docs/TS_TO_ARKTS_PLAN.md) maps it
+onto Parity's existing Python-to-Rust runner and gate architecture. A first
+profile (`fixtures/telemetry-workbench/ts-arkts-core`, three hand-ported
+functions) runs and verifies on the real HarmonyOS emulator end-to-end; the
+agent-driven migration workflow and automatic TypeScript onboarding are not
+implemented yet.
