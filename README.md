@@ -64,33 +64,31 @@ The agents never get to say done. Only the checker does.
 
 ```mermaid
 flowchart TD
-    U["You run check, tick functions, run migrate"] --> S["Scanner and test builder<br/>plain code, runs the original"]
-    S --> P["Planner agent<br/>orders the work, flags language differences"]
-    P -- asks before anyone writes --> E["Expert agent<br/>runs the original, writes a rule"]
-    P --> W1[Worker agent<br/>one function]
-    P --> W2[Worker agent<br/>one function]
-    W1 -- question --> E
-    W2 -- question --> E
-    E -- rule reaches every worker --> W1
-    E -- rule reaches every worker --> W2
-    W1 --> C{"Checker, plain code<br/>compile, run old and new, compare"}
-    W2 --> C
-    C -- failed, with the input that broke it --> W1
-    C -- out of tries --> X[Stronger model takes the function]
-    X --> C
-    C -- passed --> T["Tester agent, different model<br/>invents inputs to break it"]
-    T -- found one, it becomes a permanent test --> C
-    T -- could not break it --> I[Integrator<br/>rechecks with everything kept]
-    I --> H["Hidden tests, once"] --> R["Export, new code and report"]
+    U["You pick the functions"] --> S["Scanner and test builder<br/>plain code, runs the original"]
+    S --> P["Planner agent<br/>orders the work"]
+    P --> W["Worker agents, in parallel<br/>one function each"]
+    P -- "flags a language difference" --> E["Expert agent<br/>runs the original, writes a rule"]
+    W -- "asks a question" --> E
+    E -- "the rule goes to every worker" --> W
+    W --> C{"Checker, plain code<br/>compile, run old and new, compare"}
+    C -- "failed, gets the input that broke it,<br/>then a stronger model" --> W
+    C -- "a mismatch also goes to the expert" --> E
+    C -- "passed" --> T["Tester agent, different model<br/>invents inputs to break it"]
+    T -- "broke it, new permanent test" --> C
+    T -- "could not break it" --> I["Kept<br/>rechecked with everything else"]
+    I --> H["Hidden tests, once"]
+    H --> R["Export, new code and report"]
 ```
 
-What one check looks like: the tester calls `soundex("Lloyd")` on both versions, the original answers `"L300"`, the Rust answers `"L300"`, and that pair is one of thousands compared in a run. One different answer and the function goes back.
+What one check looks like: the tester calls `soundex("Lloyd")` on both versions. The original says `"L300"`, the Rust says `"L300"`. That is one of thousands of pairs compared in a run. One different answer and the function goes back.
 
-**Why this needs a team and not one agent.** The library does not fit in one context, so each worker holds one function. A decision about how the two languages differ has to be made once and reach everyone, which is the expert's job. And the one who tests the code can't be the one who wrote it, so the tester is a separate agent on a different model.
+**Why a team and not one agent.** The library doesn't fit in one context, so each worker holds one function. A decision about how the two languages differ has to be made once and reach everyone, which is the expert's job. And whoever tests the code can't be the one who wrote it, so the tester is a separate agent on a different model.
 
-**When things go wrong.** A failed function goes back to its worker with the input that broke it, three tries, then up to a stronger model, then marked as needing a human. A model call with no answer in 150 seconds is asked again. If the planner's plan is unusable the run falls back to the declared order. A run that is cut off, or that hits its token budget, keeps everything already proven and continues from there.
+**How the run adapts.** Nothing is a fixed script. The planner names the language differences it is worried about and the expert settles them before any worker starts. When the checker finds a mismatch, the failing input goes to the worker and to the expert, who can turn it into a rule for everyone. When a rule changes, functions already kept are rechecked under it, and a worker is only called back if one fails. When code doesn't compile, the expert reads the error and tells the worker the fix.
 
-**Adding a language.** The workflow, the agents and the checker know nothing about Python, C or TypeScript. A language pair is a folder: the original code, empty target files, a command that runs the original, a command that builds and runs the new code, and the tests. TypeScript to ArkTS was added that way during the hackathon by a teammate, on a HarmonyOS emulator, with almost no change to the engine. The format is in `CONTRACTS.md`.
+**When things go wrong.** Three tries, then a stronger model, then the function is marked as needing a human, along with anything that calls it. A model call with no answer in 150 seconds is asked again. If the planner's plan is unusable, the run falls back to the declared order. A run that is cut off or hits its token budget keeps everything already proven and continues from there. A failed hidden test is reported and never shown to the agents, so the score can't be gamed.
+
+**Adding a language.** The workflow, the agents and the checker know nothing about Python, C or TypeScript. A language pair is a folder: the original code, empty target files, a command that runs the original, a command that builds and runs the new code, and the tests. A teammate added TypeScript to ArkTS that way during the hackathon, on a HarmonyOS emulator, with almost no change to the engine.
 
 **Limits.** Pure functions over numbers, text, true/false and lists. "Proven" means the same answer as the original on every input tried, inside a declared range. That is strong evidence, not a mathematical proof, and every report says so.
 
