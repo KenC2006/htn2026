@@ -293,6 +293,9 @@ class Board:
             self.say(e, "run", "run", f"{name} was kept in the earlier run, reused")
         elif t == "chunk.blocked" and piece and piece["state"].startswith("REJECTED"):
             pass                                   # keep the failing input on screen
+        elif t == "chunk.blocked" and str(p.get("reason") or "").startswith("no Rust file"):
+            self._set(piece, "NOT WRITTEN", "yellow", p["reason"], "dim")      # nothing was handed in for it: not a failure of the Rust
+            self.say(e, "run", "run", f"– {name} has no Rust yet")
         elif t == "chunk.blocked":
             self._set(piece, "NEEDS A HUMAN", "bold red", _short(p.get("reason") or p.get("detail"), 110), "bold red")
             self.say(e, "run", "run", f"✗ {name} needs a human")
@@ -360,7 +363,7 @@ class Board:
                                (_short(self.caught[-1], max(width - 16, 40)), "red")) if self.caught else None
 
         # one line per function, then ONE code panel: the function being worked on right now
-        marks = {"KEPT": ("✓", "bold green"), "NEED": ("✗", "bold red"), "REJE": ("✗", "bold red"), "FAIL": ("✗", "bold red"), "wait": ("·", "dim")}
+        marks = {"KEPT": ("✓", "bold green"), "NEED": ("✗", "bold red"), "REJE": ("✗", "bold red"), "FAIL": ("✗", "bold red"), "wait": ("·", "dim"), "NOT ": ("–", "yellow")}
         wide = max((len(x["what"] or c) for c, x in self.pieces.items()), default=8) + 2
         rows = []
         for c, x in self.pieces.items():
