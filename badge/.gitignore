@@ -1,4 +1,0 @@
-firmware/build/
-firmware/managed_components/
-backup/*.bin
-__pycache__/

@@ -10,8 +10,8 @@ tests/gate_fixture/frozen.lock.json
 __pycache__/
 tests/flow_fixture/frozen.lock.json
 
-# Flash backups: 4MB images containing badge PII (contacts, identity, upload token). Never commit.
-badge/backup/
+# The badge firmware project lives only on our machines, not in this repo. Its flash backups hold PII: never commit.
+badge/
 
 # Projects made by `parity new` (they contain a copy of the library being migrated) and its downloads.
 projects/
