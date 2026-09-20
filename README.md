@@ -60,6 +60,42 @@ No agent ever holds the whole library, which is how we get around the context pr
 
 The agents never get to say done. Only the checker does.
 
+## How the agents work together
+
+```mermaid
+flowchart TD
+    U["You run check, tick functions, run migrate"] --> S["Scanner and test builder<br/>plain code, runs the original"]
+    S --> P["Planner agent<br/>orders the work, flags language differences"]
+    P -- asks before anyone writes --> E["Expert agent<br/>runs the original, writes a rule"]
+    P --> W1[Worker agent<br/>one function]
+    P --> W2[Worker agent<br/>one function]
+    W1 -- question --> E
+    W2 -- question --> E
+    E -- rule reaches every worker --> W1
+    E -- rule reaches every worker --> W2
+    W1 --> C{"Checker, plain code<br/>compile, run old and new, compare"}
+    W2 --> C
+    C -- failed, with the input that broke it --> W1
+    C -- out of tries --> X[Stronger model takes the function]
+    X --> C
+    C -- passed --> T["Tester agent, different model<br/>invents inputs to break it"]
+    T -- found one, it becomes a permanent test --> C
+    T -- could not break it --> I[Integrator<br/>rechecks with everything kept]
+    I --> H["Hidden tests, once"] --> R["Export, new code and report"]
+```
+
+What one check looks like: the tester calls `soundex("Lloyd")` on both versions, the original answers `"L300"`, the Rust answers `"L300"`, and that pair is one of thousands compared in a run. One different answer and the function goes back.
+
+**Why this needs a team and not one agent.** The library does not fit in one context, so each worker holds one function. A decision about how the two languages differ has to be made once and reach everyone, which is the expert's job. And the one who tests the code can't be the one who wrote it, so the tester is a separate agent on a different model.
+
+**When things go wrong.** A failed function goes back to its worker with the input that broke it, three tries, then up to a stronger model, then marked as needing a human. A model call with no answer in 150 seconds is asked again. If the planner's plan is unusable the run falls back to the declared order. A run that is cut off, or that hits its token budget, keeps everything already proven and continues from there.
+
+**Adding a language.** The workflow, the agents and the checker know nothing about Python, C or TypeScript. A language pair is a folder: the original code, empty target files, a command that runs the original, a command that builds and runs the new code, and the tests. TypeScript to ArkTS was added that way during the hackathon by a teammate, on a HarmonyOS emulator, with almost no change to the engine. The format is in `CONTRACTS.md`.
+
+**Limits.** Pure functions over numbers, text, true/false and lists. "Proven" means the same answer as the original on every input tried, inside a declared range. That is strong evidence, not a mathematical proof, and every report says so.
+
+Which parts of openJiuwen and WorkSwarm we use, what we wrote ourselves, and what each agent can and cannot touch: `ARCHITECTURE.md`.
+
 ## Run it
 
 Add `bin` to PATH, go to the folder your code is in, and type `parity`. Then:
