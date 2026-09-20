@@ -2,7 +2,7 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
-  new <file|folder|module>    make a project from real Python code: finds the functions that can be migrated, builds inputs and the Rust scaffold
+  new <file|folder|module>    make a project from real Python, C or TypeScript code: finds the functions that can be migrated, builds inputs and the scaffold
   run <profile_dir> [--resume --run-id X]   migrate with the agent team; --resume continues an interrupted run
   check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
@@ -487,9 +487,10 @@ def export(ns: argparse.Namespace) -> int:
         print(f"  {f.name}  ({f.stat().st_size} bytes)")
     kept = RUNS / ns.run_id / "accepted"
     if WORK != ROOT and kept.exists():                      # working in someone's own folder: put the new code where they can see it
-        dest = Path.cwd() / f"{profile_dir.name}-rust"
+        new = _load_profile(profile_dir)[0].get("languages", {}).get("target", "Rust")
+        dest = Path.cwd() / f"{profile_dir.name}-{new.lower()}"
         shutil.copytree(kept, dest, dirs_exist_ok=True)
-        print(f"\nThe proven Rust is in {dest.name}/")
+        print(f"\nThe proven {new} is in {dest.name}/")
     return 0 if exportable else 1
 
 

@@ -41,15 +41,15 @@ ARKTS_PROJECT = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"
 
 COMMANDS = [
     ("/mode [python|c|arkts]", "what you are migrating: Python → Rust, C → Rust, or TypeScript → ArkTS (run on the HarmonyOS emulator)"),
-    ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
-    ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails. "
+    ("/check <file>", "which functions in a .py, .c or .ts file (or a folder of .py or .c) can be migrated, and why not for the rest"),
+    ("/migrate <file> [folder]", "migrate it (to Rust, or to ArkTS in that mode). With a folder: start from the translation in it and fix only what fails. "
                                  "A run that was cut off is continued; --fresh starts over"),
-    ("/verify <file> [folder] [--attack]", "test a Rust translation of that file that someone else wrote (in <folder>/target; no folder: the Rust Parity wrote): "
+    ("/verify <file> [folder] [--attack]", "test a translation of that file that someone else wrote (in <folder>/target; no folder: the Rust Parity wrote): "
                                            "fixed and hidden tests, about a minute. --attack adds the AI tester. "
                                            "A folder instead of a file: every file in it that has tests, its Rust in <folder>/<name>/target"),
     ("/runs", "recent runs"),
     ("/status [run | file]", "result of a run; with a file, the newest run on it"),
-    ("/export [run | file]", "put the proven Rust in this folder, with a report"),
+    ("/export [run | file]", "put the proven new code in this folder, with a report"),
     ("/models", "change which AI models the agents use"),
     ("/doctor", "check the setup: Python, rustc, the key"),
     ("/quit", "leave"),
@@ -281,6 +281,11 @@ def _call(argv: list[str]) -> int:
         return 130
 
 
+def _lang() -> str:
+    """What the new code is called in messages: ArkTS in that mode, Rust otherwise."""
+    return "ArkTS" if _load().get("mode") == "arkts" else "Rust"
+
+
 def _new_id(prefix: str) -> str:
     return datetime.now().strftime(f"{prefix}-%H%M%S")
 
@@ -333,7 +338,7 @@ def verify_one(state: dict, what: str, folder: Path, attack: bool, tag: str = ""
         return None
     if not _has_rust(project, folder):
         first = next(w for c in cli._load_profile(project)[1].values() for w in c["write_allowlist"])
-        console.print(f"  no Rust for {what} in {folder}. It should hold {first} and the rest.")
+        console.print(f"  no {_lang()} for {what} in {folder}. It should hold {first} and the rest.")
         return None
     state["last_run"] = _new_id("outside") + tag
     _save(state)
@@ -355,12 +360,12 @@ def verify_folder(state: dict, source: Path, folder: Path | None, attack: bool) 
         if folder is None:
             rust = _own_rust(PROJECTS / name)
             if rust is None:
-                console.print(Text.assemble((f"  {n}/{len(built)}  ", ACCENT), (_rel(file), "bold"), ("   no Rust yet: /migrate writes it", "dim")), highlight=False)
+                console.print(Text.assemble((f"  {n}/{len(built)}  ", ACCENT), (_rel(file), "bold"), (f"   no {_lang()} yet: /migrate writes it", "dim")), highlight=False)
                 results.append((file, None))
                 continue
         else:
             rust = next((d for d in (folder / name, folder / file.stem) if d.is_dir() and _has_rust(PROJECTS / name, d)), folder)
-        console.print(Text.assemble((f"  {n}/{len(built)}  ", ACCENT), (_rel(file), "bold"), (f"   Rust in {_rel(rust)}", "dim")), highlight=False)
+        console.print(Text.assemble((f"  {n}/{len(built)}  ", ACCENT), (_rel(file), "bold"), (f"   {_lang()} in {_rel(rust)}", "dim")), highlight=False)
         results.append((file, verify_one(state, str(file), rust, attack, tag=f"-{n}")))
     console.print()
     for file, run_id in results:
@@ -444,7 +449,7 @@ def handle(line: str, state: dict) -> bool:
         attack = "--attack" in args                      # also let the AI tester try to break it: minutes per function
         args = [x for x in args if x != "--attack"]
         if not args:
-            console.print("  which file, and which folder holds its Rust?  example: /verify pricing.py their-rust   (a folder of files works too)")
+            console.print(f"  which file, and which folder holds its {_lang()}?  example: /verify pricing.py their-folder   (a folder of files works too)")
             return True
         if len(args) == 1 and Path(args[0]).is_dir() and not (PROJECTS / cli.project_name(args[0]) / "profile.json").exists():
             verify_folder(state, Path(args[0]), None, attack)
@@ -453,12 +458,12 @@ def handle(line: str, state: dict) -> bool:
             project = PROJECTS / cli.project_name(args[0])
             own = _own_rust(project)
             if own is None:
-                console.print(f"  there is no Rust for {args[0]} yet. [bold]/migrate {args[0]}[/bold] writes it; "
-                              f"to test Rust someone else wrote: /verify {args[0]} <folder>" if (project / "profile.json").exists() else
-                              f"  no tests and no Rust for {args[0]} yet. [bold]/migrate {args[0]}[/bold] builds the tests and writes the Rust; "
-                              f"to test Rust someone else wrote afterwards: /verify {args[0]} <folder>")
+                console.print(f"  there is no {_lang()} for {args[0]} yet. [bold]/migrate {args[0]}[/bold] writes it; "
+                              f"to test {_lang()} someone else wrote: /verify {args[0]} <folder>" if (project / "profile.json").exists() else
+                              f"  no tests and no {_lang()} for {args[0]} yet. [bold]/migrate {args[0]}[/bold] builds the tests and writes the {_lang()}; "
+                              f"to test {_lang()} someone else wrote afterwards: /verify {args[0]} <folder>")
                 return True
-            console.print(f"  [dim]no folder given: testing the Rust from run {own.parent.name}{_kept_note(project, own)}[/dim]", highlight=False)
+            console.print(f"  [dim]no folder given: testing the {_lang()} from run {own.parent.name}{_kept_note(project, own)}[/dim]", highlight=False)
             args.append(str(own))
         source, folder = Path(args[0]), Path(args[1])
         if source.is_dir() and not (PROJECTS / cli.project_name(args[0]) / "profile.json").exists():
