@@ -30,3 +30,4 @@ projects/
 # Ephemeral ArkTS artifacts (the gate removes these after each attempt).
 _arkts.hap
 _arkts_artifact.json
+.vscode/
