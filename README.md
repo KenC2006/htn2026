@@ -46,7 +46,7 @@ We picked one real library for each migration
 
 ## How we used SwarmFlow and openJiuwen
 
-Parity is a customized multi-agent application built on WorkSwarm 0.2.6, Huawei's successor to JiuwenSwarm. We use its SwarmFlow engine, its openJiuwen `ReActAgent`, its tool system and its budget rail as they are. The one thing we replaced is WorkSwarm's stock worker: it gets file and shell access, which would let a worker read the tests. Ours only gets the few tools its role needs.
+Built on WorkSwarm 0.2.6. We swapped out one part, its stock worker, because it can read files and would see the tests.
 
 The two do different jobs. openJiuwen gives us the agents. SwarmFlow decides who runs when.
 
