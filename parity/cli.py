@@ -43,6 +43,12 @@ def _load_profile(profile_dir: Path) -> tuple[dict, dict]:
     return profile, chunks
 
 
+def _why(log: str) -> str:
+    """The line of a failed tool's output that says what is wrong: the last "Error: ..." line, else the last line."""
+    lines = [x.strip() for x in log.splitlines() if x.strip()]
+    return next((x.removeprefix("Error: ") for x in reversed(lines) if x.startswith("Error: ")), lines[-1] if lines else "no output")
+
+
 # ───────────────────────── doctor ─────────────────────────
 
 def doctor(_: argparse.Namespace) -> int:
@@ -70,7 +76,7 @@ def doctor(_: argparse.Namespace) -> int:
     arkts = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"      # the route's own check: DevEco Studio, signing, one running emulator
     try:
         out = subprocess.run([sys.executable, "runners/build.py", "--preflight"], cwd=arkts, capture_output=True, text=True, timeout=60)
-        last = next((x.strip() for x in reversed((out.stdout + out.stderr).splitlines()) if x.strip()), "no output")
+        last = _why(out.stdout + out.stderr)
         rows.append(("TypeScript to ArkTS", out.returncode == 0, last.removeprefix("RuntimeError: ")[:110] + ("" if out.returncode == 0 else "  (env/setup-arkts.md)"), False))
     except Exception as e:  # noqa: BLE001
         rows.append(("TypeScript to ArkTS", False, str(e)[:70], False))
@@ -192,7 +198,7 @@ def _preflight(profile_dir: Path) -> bool:
         return True
     code, log = _run(profile['preflight'], profile_dir, 30)
     if code != 0:
-        why = next((x.strip() for x in reversed(log.splitlines()) if x.strip()), "no output")       # the last line says what is missing
+        why = _why(log)
         print("  this project cannot run on this machine yet: " + why.removeprefix("RuntimeError: "))
         return False
     return True
