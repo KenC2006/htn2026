@@ -67,8 +67,13 @@ def doctor(_: argparse.Namespace) -> int:
         rows.append(("workswarm / openjiuwen", False, str(e)[:70], True))
     tool("rustc", ["rustc", "--version"], True, "builds every translation")
     tool("gcc", ["gcc", "--version"], False, "C to Rust only: compiles the original")
-    tool("node", ["node", "--version"], False, "TypeScript to ArkTS only: runs the original")
-    tool("hdc (ArkTS device)", ["hdc", "version"], False, "TypeScript to ArkTS only: runs on the emulator")
+    arkts = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"      # the route's own check: DevEco Studio, signing, one running emulator
+    try:
+        out = subprocess.run([sys.executable, "runners/build.py", "--preflight"], cwd=arkts, capture_output=True, text=True, timeout=60)
+        last = next((x.strip() for x in reversed((out.stdout + out.stderr).splitlines()) if x.strip()), "no output")
+        rows.append(("TypeScript to ArkTS", out.returncode == 0, last.removeprefix("RuntimeError: ")[:110] + ("" if out.returncode == 0 else "  (env/setup-arkts.md)"), False))
+    except Exception as e:  # noqa: BLE001
+        rows.append(("TypeScript to ArkTS", False, str(e)[:70], False))
     for var in ("API_BASE", "API_KEY", "MODEL_NAME", "REVIEWER_MODEL"):
         rows.append((f"env {var}", bool(os.environ.get(var)), "set" if os.environ.get(var) else "missing: . env/activate-swarm.sh", var != "REVIEWER_MODEL"))
     if os.environ.get("API_KEY") and os.environ.get("API_BASE"):
@@ -187,7 +192,8 @@ def _preflight(profile_dir: Path) -> bool:
         return True
     code, log = _run(profile['preflight'], profile_dir, 30)
     if code != 0:
-        print('Environment preflight failed before verification or agent calls:\n' + log)
+        why = next((x.strip() for x in reversed(log.splitlines()) if x.strip()), "no output")       # the last line says what is missing
+        print("  this project cannot run on this machine yet: " + why.removeprefix("RuntimeError: "))
         return False
     return True
 

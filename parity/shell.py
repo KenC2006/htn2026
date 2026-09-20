@@ -34,10 +34,13 @@ console = Console()
 ACCENT = picker.ACCENT
 
 MODES = {"python": ("Python → Rust", ".py files, folders and installed modules", (".py",)),
-         "c": ("C → Rust", ".c files and folders of them; the original is compiled with gcc", (".c", ".h"))}
+         "c": ("C → Rust", ".c files and folders of them; the original is compiled with gcc", (".c", ".h")),
+         "arkts": ("TypeScript → ArkTS", "the prepared project only; needs DevEco Studio and a running HarmonyOS emulator", (".ts", ".ets"))}
+# TypeScript to ArkTS has no scanner for your own files yet: the mode works on this prepared project (three functions, run on the emulator).
+ARKTS_PROJECT = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"
 
 COMMANDS = [
-    ("/mode [python|c]", "what you are migrating: Python → Rust or C → Rust"),
+    ("/mode [python|c|arkts]", "what you are migrating: Python → Rust, C → Rust, or TypeScript → ArkTS (the prepared project, on the HarmonyOS emulator)"),
     ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
     ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails. "
                                  "A run that was cut off is continued; --fresh starts over"),
@@ -77,8 +80,9 @@ def _project_line(folder: Path) -> str:
 
 def choose_mode(state: dict, word: str = "") -> None:
     keys = list(MODES)
-    if word.lower() in ("py", "python", "c"):
-        state["mode"] = "c" if word.lower() == "c" else "python"
+    words = {"py": "python", "python": "python", "c": "c", "ts": "arkts", "typescript": "arkts", "arkts": "arkts"}
+    if word.lower() in words:
+        state["mode"] = words[word.lower()]
     else:
         i = picker.pick(console, "What are you migrating?", [(MODES[k][0], MODES[k][1], True) for k in keys], keys.index(state.get("mode", "python")))
         if i is None:
@@ -93,7 +97,7 @@ def _fits_mode(state: dict, what: str) -> bool:
     path = Path(what)
     if not path.exists():
         return True                                   # a module name: Python
-    found = "c" if is_c(path) else "python"
+    found = "arkts" if path.suffix.lower() in (".ts", ".ets") else "c" if is_c(path) else "python"
     if found == state.get("mode", "python"):
         return True
     console.print(f"  that is {MODES[found][0].split()[0]} code and the mode is {MODES[state.get('mode', 'python')][0]}.  "
@@ -369,6 +373,28 @@ def verify_folder(state: dict, source: Path, folder: Path | None, attack: bool) 
         console.print(f"  [dim]{skipped} other {suffix} file{'s' if skipped > 1 else ''} with no tests yet: skipped[/dim]")
 
 
+def arkts(cmd: str, args: list[str], state: dict) -> None:
+    """TypeScript to ArkTS: the same team, checker and hidden tests, on the prepared project. The new code is built with DevEco
+    and run on the HarmonyOS emulator, so every command first checks that both are there and says what is missing."""
+    if args and Path(args[0]).suffix.lower() in (".ts", ".ets") and cmd != "verify":
+        console.print("  [dim]starting from your own .ts file is not built yet; this mode works on the prepared project "
+                      f"({_rel(ARKTS_PROJECT)}: bucketStart, clampValue, summarizeBuckets)[/dim]", highlight=False)
+    if cmd == "check":
+        _call(["scan", str(ARKTS_PROJECT)])
+        return
+    attack = "--attack" in args
+    args = [x for x in args if x not in ("--attack", "--fresh") and Path(x).suffix.lower() not in (".ts", ".ets")]
+    if cmd == "verify" and not args:
+        console.print(f"  which folder holds the ArkTS?  example: /verify {_rel(ROOT / 'tests' / 'arkts_known_good')}")
+        return
+    state["last_run"] = _new_id("team" if cmd == "migrate" else "outside")
+    _save(state)
+    if cmd == "migrate":
+        _call(["run", str(ARKTS_PROJECT), "--run-id", state["last_run"]] + (["--start-from", args[0]] if args else []))
+    else:
+        _call(["check", str(ARKTS_PROJECT), args[0], "--author", "outside", "--run-id", state["last_run"]] + ([] if attack else ["--no-tester"]))
+
+
 def handle(line: str, state: dict) -> bool:
     try:
         words = shlex.split(line, posix=False)
@@ -382,6 +408,8 @@ def handle(line: str, state: dict) -> bool:
         show_help()
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
+    elif cmd in ("check", "migrate", "verify") and state.get("mode") == "arkts":
+        arkts(cmd, args, state)
     elif cmd in ("check", "migrate", "verify") and args and not _fits_mode(state, args[0]):
         pass
     elif cmd == "check":
