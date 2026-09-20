@@ -174,6 +174,7 @@ class Board:
         worker = self.mode[9:] if self.mode.startswith("outside: ") else "worker"
         if t == "run.started":
             self.t0, self.mode = _ts(e), p.get("mode", "team")
+            self.label = p.get("label", "")            # a cut or scripted replay says so on screen, in place of the clock
             try:
                 root = Path(p["profile_dir"])
                 lang = json.loads((root / "profile.json").read_text(encoding="utf-8")).get("languages", {})
@@ -354,7 +355,8 @@ class Board:
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
         who = self.mode[9:] if self.mode.startswith("outside: ") else "agent team"
-        head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  {int(max(self.now - self.t0, 0))}s  ·  ", "dim"),
+        head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  ", "dim"),
+                             ((self.label, "bold yellow") if getattr(self, "label", "") else (f"{int(max(self.now - self.t0, 0))}s", "dim")), ("  ·  ", "dim"),
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),
                              (f"  ·  hidden tests {self.hidden}" if self.hidden else "", "bold red" if "FAIL" in self.hidden else "green"))
         rule = self.rules[-1] if self.rules else None
