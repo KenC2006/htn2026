@@ -11,4 +11,6 @@ Needs a HUAWEI ID (free) and about 15 GB of disk. None of this can be scripted: 
    `powershell -ExecutionPolicy Bypass -File .\experiments\arkts-smoke\scripts\run-arkts-smoke.ps1` should end with `ARKTS_SMOKE_PASS:10`.
 5. **Check Parity on it without any models** (known-good ArkTS through the checker):
    `parity` then `/mode arkts` then `/verify tests/arkts_known_good`.
-6. **The team run:** `/mode arkts` then `/migrate`.
+6. **The team run on your own file:** `/mode arkts`, then `/check file.ts` and `/migrate file.ts`. With no file named, `/migrate` uses the prepared three-function project.
+
+If DevEco writes the signing material but `parity doctor` still says "No signing configuration selected", add `"signingConfig": "default"` to the `default` product in `experiments/arkts-smoke/build-profile.json5`.

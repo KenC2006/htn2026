@@ -43,4 +43,4 @@ Python `-1 // 1000` is `-1`. Rust `-1 / 1000` is `0`. Show a worker get this wro
 | a piece | chunk |
 | thrown out and redone | stale, invalidated |
 | hidden test set | locked evaluation |
-| Python to Rust and C to Rust work end to end from your own file; TypeScript to ArkTS verifies on the HarmonyOS emulator and is in development | profiles, routes |
+| three modes from your own file: Python to Rust, C to Rust, and TypeScript to ArkTS, where every test case runs on the HarmonyOS emulator | profiles, routes |

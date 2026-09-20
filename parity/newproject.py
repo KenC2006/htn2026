@@ -30,7 +30,10 @@ def is_c(source: Path) -> bool:
 
 
 def scan(source: Path) -> list[Function]:
-    """The scanner for this kind of source: C for a .c or .h file, Python otherwise."""
+    """The scanner for this kind of source: TypeScript for a .ts file, C for a .c or .h file, Python otherwise."""
+    from . import newarkts
+    if newarkts.is_ts(source):
+        return newarkts.scan(source)
     if is_c(source):
         from .scan_c import scan as scan_c
         return scan_c(source)
@@ -77,6 +80,8 @@ def default_rule(f: Function, p, kind: str) -> dict:
 
 def _default_value(f: Function, name: str):
     import ast
+    if f.file.suffix.lower() != ".py":
+        return ...
     node = ast.parse(f.source.lstrip()).body[0] if not f.source.startswith(" ") else None
     if node is None:
         return ...
@@ -301,6 +306,9 @@ def make_cases(name: str, piece: str, rules: dict, n: int, seed: int, examples: 
 def create(source: Path, name: str, chosen: list[str] | None = None, *, use_ai: bool = True, say=print) -> Path:
     """Build projects/<name>/ from a Python file or package folder. Returns the project folder."""
     source = Path(source).resolve()
+    from . import newarkts
+    if newarkts.is_ts(source):                    # TypeScript to ArkTS: its own project layout, built and run with DevEco
+        return newarkts.create(source, name, chosen, use_ai=use_ai, say=say)
     from_c = is_c(source)
     lang = "C" if from_c else "Python"
     functions = scan(source)

@@ -35,12 +35,12 @@ ACCENT = picker.ACCENT
 
 MODES = {"python": ("Python → Rust", ".py files, folders and installed modules", (".py",)),
          "c": ("C → Rust", ".c files and folders of them; the original is compiled with gcc", (".c", ".h")),
-         "arkts": ("TypeScript → ArkTS", "the prepared project only; needs DevEco Studio and a running HarmonyOS emulator", (".ts", ".ets"))}
-# TypeScript to ArkTS has no scanner for your own files yet: the mode works on this prepared project (three functions, run on the emulator).
+         "arkts": ("TypeScript → ArkTS", "one .ts file; needs DevEco Studio and a running HarmonyOS emulator", (".ts", ".ets"))}
+# TypeScript to ArkTS with no file named works on this prepared project (three functions).
 ARKTS_PROJECT = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"
 
 COMMANDS = [
-    ("/mode [python|c|arkts]", "what you are migrating: Python → Rust, C → Rust, or TypeScript → ArkTS (the prepared project, on the HarmonyOS emulator)"),
+    ("/mode [python|c|arkts]", "what you are migrating: Python → Rust, C → Rust, or TypeScript → ArkTS (run on the HarmonyOS emulator)"),
     ("/check <file>", "which functions in a .py or .c file (or folder) can be migrated, and why not for the rest"),
     ("/migrate <file> [folder]", "migrate it to Rust. With a folder: start from the translation in it and fix only what fails. "
                                  "A run that was cut off is continued; --fresh starts over"),
@@ -376,14 +376,13 @@ def verify_folder(state: dict, source: Path, folder: Path | None, attack: bool) 
 def arkts(cmd: str, args: list[str], state: dict) -> None:
     """TypeScript to ArkTS: the same team, checker and hidden tests, on the prepared project. The new code is built with DevEco
     and run on the HarmonyOS emulator, so every command first checks that both are there and says what is missing."""
-    if args and Path(args[0]).suffix.lower() in (".ts", ".ets") and cmd != "verify":
-        console.print("  [dim]starting from your own .ts file is not built yet; this mode works on the prepared project "
-                      f"({_rel(ARKTS_PROJECT)}: bucketStart, clampValue, summarizeBuckets)[/dim]", highlight=False)
+    if not args or cmd == "check":
+        console.print(f"  [dim]no .ts file named: using the prepared project ({_rel(ARKTS_PROJECT)}). Your own code: /{cmd} <file.ts>[/dim]", highlight=False)
     if cmd == "check":
         _call(["scan", str(ARKTS_PROJECT)])
         return
     attack = "--attack" in args
-    args = [x for x in args if x not in ("--attack", "--fresh") and Path(x).suffix.lower() not in (".ts", ".ets")]
+    args = [x for x in args if x not in ("--attack", "--fresh")]
     if cmd == "verify" and not args:
         console.print(f"  which folder holds the ArkTS?  example: /verify {_rel(ROOT / 'tests' / 'arkts_known_good')}")
         return
@@ -408,8 +407,8 @@ def handle(line: str, state: dict) -> bool:
         show_help()
     elif cmd in ("mode", "modes"):
         choose_mode(state, " ".join(args))
-    elif cmd in ("check", "migrate", "verify") and state.get("mode") == "arkts":
-        arkts(cmd, args, state)
+    elif cmd in ("check", "migrate", "verify") and state.get("mode") == "arkts" and not any(Path(x).suffix.lower() == ".ts" for x in args[:1]):
+        arkts(cmd, args, state)                          # no .ts file named: the prepared project
     elif cmd in ("check", "migrate", "verify") and args and not _fits_mode(state, args[0]):
         pass
     elif cmd == "check":

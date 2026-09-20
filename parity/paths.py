@@ -19,6 +19,9 @@ def _work() -> Path:
 
 
 WORK = _work()
+_signing = ROOT / "experiments" / "arkts-smoke" / "build-profile.json5"      # TypeScript to ArkTS: the local DevEco signing profile
+if _signing.is_file():
+    os.environ.setdefault("PARITY_ARKTS_SIGNING_PROFILE", str(_signing))
 RUNS = WORK / "runs"
 PROJECTS = WORK / "projects"
 

@@ -109,12 +109,16 @@ Lua apps for the stock firmware, pushed with `tools/deploy.py`:
 | `cbradio/` | CB-radio text chat between badges |
 | `probe/` | a scratch app for trying things |
 
-## ArkTS route (in development)
+## TypeScript to ArkTS
 
-The verified DevEco smoke app is in [experiments/arkts-smoke](experiments/arkts-smoke/README.md).
-The [TypeScript-to-ArkTS implementation plan](docs/TS_TO_ARKTS_PLAN.md) maps it
-onto Parity's existing Python-to-Rust runner and gate architecture. A first
-profile (`fixtures/telemetry-workbench/ts-arkts-core`, three hand-ported
-functions) runs and verifies on the real HarmonyOS emulator end-to-end; the
-agent-driven migration workflow and automatic TypeScript onboarding are not
-implemented yet.
+`/mode arkts`, then `/check file.ts` and `/migrate file.ts`, as in the other two modes. One `.ts` file that stands alone
+(no imports); exported functions whose inputs and result are numbers, strings, booleans or arrays of them. The original
+runs under Node. The new ArkTS is compiled by DevEco, signed, installed on the HarmonyOS emulator and run there, one
+app launch per test case, so a function is only kept when the device itself gives the same answers. When the app dies
+on the device, the rejection carries the device's crash log. `/verify file.ts <folder>` tests ArkTS anyone wrote.
+With no file named, the commands use the prepared project `fixtures/telemetry-workbench/ts-arkts-core`.
+
+Needs DevEco Studio, a signing profile and one running emulator: [env/setup-arkts.md](env/setup-arkts.md); `parity doctor`
+says what is missing. The scanner and generator are `parity/newarkts.py` and `parity/arkts/`; the device runners are
+the prepared project's. Background: [experiments/arkts-smoke](experiments/arkts-smoke/README.md),
+[docs/TS_TO_ARKTS_PLAN.md](docs/TS_TO_ARKTS_PLAN.md).
