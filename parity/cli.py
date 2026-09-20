@@ -65,13 +65,10 @@ def doctor(_: argparse.Namespace) -> int:
         rows.append(("workswarm / openjiuwen", True, f"workswarm {version('workswarm')}, openjiuwen {version('openjiuwen')}", True))
     except Exception as e:  # noqa: BLE001
         rows.append(("workswarm / openjiuwen", False, str(e)[:70], True))
-    tool("rustc", ["rustc", "--version"], True, "all Rust routes")
-    tool("cargo", ["cargo", "--version"], True, "all Rust routes")
-    tool("maturin", ["maturin", "--version"], False, "py-rust-batch")
-    tool("clang", ["clang", "--version"], False, "c-rust-buffer oracle with sanitizers")
-    tool("node", ["node", "--version"], False, "ts-arkts-core source runner")
-    tool("hdc (ArkTS device)", ["hdc", "version"], False, "ts-arkts-core native run")
-    tool("docker", ["docker", "--version"], False, "optional candidate isolation")
+    tool("rustc", ["rustc", "--version"], True, "builds every translation")
+    tool("gcc", ["gcc", "--version"], False, "C to Rust only: compiles the original")
+    tool("node", ["node", "--version"], False, "TypeScript to ArkTS only: runs the original")
+    tool("hdc (ArkTS device)", ["hdc", "version"], False, "TypeScript to ArkTS only: runs on the emulator")
     for var in ("API_BASE", "API_KEY", "MODEL_NAME", "REVIEWER_MODEL"):
         rows.append((f"env {var}", bool(os.environ.get(var)), "set" if os.environ.get(var) else "missing: . env/activate-swarm.sh", var != "REVIEWER_MODEL"))
     if os.environ.get("API_KEY") and os.environ.get("API_BASE"):
@@ -268,7 +265,7 @@ def check(ns: argparse.Namespace) -> int:
             missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
             paths = chunks[cid]["write_allowlist"]
             if missing or not all((cand_dir / p).exists() for p in paths):
-                blocked[cid] = "a function it calls was not kept" if missing else "no file handed in"
+                blocked[cid] = "a function it calls was not kept" if missing else "no Rust file for it in that folder"
                 events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
                 continue
             cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
@@ -347,13 +344,15 @@ def status(ns: argparse.Namespace) -> int:
         elif t == "chunk.accepted":
             s_["mark"], s_["state"] = "✓", "kept"
         elif t == "chunk.blocked":
-            s_["mark"], s_["state"] = "✗", "needs a human"
+            s_["mark"], s_["state"] = ("–", "not written") if str(e["payload"].get("reason") or "").startswith("no Rust file") else ("✗", "needs a human")
             s_["last"] = s_["last"] or str(e["payload"].get("reason") or "")[:60]
     kept = sum(1 for x in state.values() if x["state"] == "kept")
     fin = any(e["type"] == "run.finished" for e in ev)
     who = start.get("mode", "team")
+    # No run.finished and nothing written for 10 minutes: it was stopped from outside (a closed terminal, a killed process).
+    quiet = not fin and (datetime.now().timestamp() - (RUNS / ns.run_id / "events.jsonl").stat().st_mtime) > 600
     print(f"{ns.run_id} · {'agent team' if who == 'team' else who.replace('outside: ', 'written by ')} · "
-          f"{'finished' if fin else 'still running'} · {kept} of {len(state)} kept\n")
+          f"{'finished' if fin else 'stopped before it finished' if quiet else 'still running'} · {kept} of {len(state)} kept\n")
     width = max((len(n) for n in names.values()), default=8) + 2
     for c, x in state.items():
         notes = []
@@ -368,9 +367,11 @@ def status(ns: argparse.Namespace) -> int:
     if hidden:
         got, want = (sum(e["payload"]["cases"].get(k, 0) for e in hidden) for k in ("passed", "expected"))
         print(f"\n  hidden tests: {got} of {want} match the original" + ("" if got == want else "  ✗ passed the visible tests but is not a correct translation"))
+    if quiet and who == "team":
+        print(f"\n  what was kept is safe. Continue it:  parity run {Path(start.get('profile_dir') or '').name} --run-id {ns.run_id} --resume")
     rules = len(_jsonl(RUNS / ns.run_id / "decisions.jsonl"))
     if rules:
-        print(f"  expert rules made during the run: {rules}  (python env/show-run.py {ns.run_id} for the full story)")
+        print(f"  expert rules made during the run: {rules}  (python {ROOT / 'env' / 'show-run.py'} {ns.run_id} for the full story)")
     return 0
 
 
@@ -508,7 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
     p.set_defaults(fn=new)
     p = sub.add_parser("run"); p.add_argument("profile_dir", nargs="?", help="project folder or name; default: the one made most recently here")
-    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=1500000)
+    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=3000000)   # a 10-function run on the cheap models used 1.07M
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
     p.add_argument("--escalate", help="stronger models, comma separated: a function that runs out of tries moves up to the next one "

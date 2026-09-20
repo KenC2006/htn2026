@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 
 from openjiuwen.agent_teams.workflow.backends.budget_rail import SwarmflowBudgetRail
 from openjiuwen.agent_teams.workflow.engine import BudgetLedger
@@ -115,6 +115,11 @@ class Team:
         cfg = ReActAgentConfig().configure_model_client(
             provider="OpenAI", api_key=os.environ["API_KEY"], api_base=os.environ["API_BASE"],
             model_name=spec.model or os.environ["MODEL_NAME"]).configure_max_iterations(spec.max_iterations)
+        # The framework waits 360 s for a reply. A call that hangs (seen: 6.5 minutes on one dead connection, the whole run waiting
+        # on it) is given up sooner; "timed out" is a network error below, so the same turn is simply asked again.
+        limit = float(os.environ.get("MODEL_TIMEOUT") or 150)
+        cfg.model_client_config.stream_first_chunk_timeout = min(cfg.model_client_config.stream_first_chunk_timeout or limit, limit)
+        cfg.model_client_config.timeout = limit
         cfg.prompt_template = [{"role": "system", "content": spec.system_prompt}]
         gen = self._generation.get(member, 0)
         uid = f"{self.run_tag}.{member}" + (f".r{gen}" if gen else "")

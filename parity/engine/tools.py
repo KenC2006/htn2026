@@ -14,6 +14,8 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from typing import Union
+
 from ..framework.team import TEAM, MemberSpec, ToolSpec
 from . import gate
 from .contracts import ContractLedger, DecisionRejected
@@ -80,6 +82,17 @@ PLANNER_PROMPT = (
     "constructs that are not in the sources. The steward settles each risk BEFORE any worker starts. A deterministic check validates "
     "your plan; if it is rejected, fix it and submit again."
 )
+
+def _loads(value) -> tuple[object, str]:
+    """Models are told to pass JSON as a string, and about one call in twenty passes the list or object itself.
+    Refusing that cost the agent a turn each time, so both are taken. Returns (value, '' or what is wrong with it)."""
+    if not isinstance(value, str):
+        return value, ""
+    try:
+        return json.loads(value), ""
+    except json.JSONDecodeError as e:
+        return None, f"not valid JSON: {e}"
+
 
 DECISION_SCHEMA = {
     "type": "object",
@@ -216,11 +229,10 @@ class RunContext:
     def steward_tools(self, actor: str = "contract-steward") -> list[ToolSpec]:
         ctx = self
 
-        async def probe_source(export: str, inputs_json: str) -> str:
-            try:
-                inputs = json.loads(inputs_json)
-            except json.JSONDecodeError as e:
-                return f"inputs_json is not valid JSON: {e}"
+        async def probe_source(export: str, inputs_json: Union[str, list, dict]) -> str:
+            inputs, bad = _loads(inputs_json)
+            if bad:
+                return f"inputs_json is {bad}"
             inputs = (inputs if isinstance(inputs, list) else [inputs])[:8]
             ctx.probe_calls += 1
             if ctx.probe_calls > 4:                                      # an expert that keeps probing never rules
@@ -252,8 +264,9 @@ class RunContext:
                 return result[:6000] + " … (cut: outputs this large cannot be shown; probe smaller inputs)"
             return result
 
-        async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: str, answer: str) -> str:
-            refs = [r.strip() for r in evidence_refs.replace(";", ",").split(",") if r.strip()]
+        async def submit_ruling(contract_id: str, kind: str, question: str, ruling: str, evidence_refs: Union[str, list], answer: str) -> str:
+            refs = ([str(r).strip() for r in evidence_refs if str(r).strip()] if isinstance(evidence_refs, list)
+                    else [r.strip() for r in evidence_refs.replace(";", ",").split(",") if r.strip()])
             TEAM.outbox["steward"] = {"contract_id": contract_id, "kind": kind, "question": question, "ruling": ruling,
                                       "evidence_refs": refs, "answer": answer}
             return "Ruling received. Stop now."
@@ -295,15 +308,14 @@ class RunContext:
     def register_tester(self, model: str | None = None) -> None:
         ctx = self
 
-        async def try_inputs(chunk_id: str, inputs_json: str) -> str:
+        async def try_inputs(chunk_id: str, inputs_json: Union[str, list, dict]) -> str:
             if chunk_id not in ctx.under_test:
                 return f"nothing is under test for {chunk_id}; use one of {sorted(ctx.under_test)}"
             if ctx.tester_calls.get(chunk_id, 0) >= 3:
                 return "You have used your 3 tries for this chunk. Call submit_report now."
-            try:
-                inputs = json.loads(inputs_json)
-            except json.JSONDecodeError as e:
-                return f"inputs_json is not valid JSON: {e}"
+            inputs, bad = _loads(inputs_json)
+            if bad:
+                return f"inputs_json is {bad}"
             keys = set(ctx.chunks[chunk_id].get("example_input", {}))
             inputs = [v for v in (inputs if isinstance(inputs, list) else [inputs]) if isinstance(v, dict) and (not keys or set(v) == keys)][:12]
             refused = [f"{json.dumps(v)}: {why}" for v in inputs if (why := ctx.outside_domain(chunk_id, v))]
@@ -368,11 +380,10 @@ class RunContext:
             ctx.events.emit("tool.read_source", actor="planner", chunk_id=chunk_id)
             return ctx.source_text(chunk_id)
 
-        async def submit_plan(plan_json: str) -> str:
-            try:
-                plan = json.loads(plan_json)
-            except json.JSONDecodeError as e:
-                return f"plan_json is not valid JSON: {e}"
+        async def submit_plan(plan_json: Union[str, dict]) -> str:
+            plan, bad = _loads(plan_json)
+            if bad or not isinstance(plan, dict):
+                return f"plan_json is {bad or 'not a JSON object'}"
             problems = ctx.check_plan(plan)
             if problems:
                 ctx.events.emit("plan.rejected", actor="plan-check", payload={"problems": problems})
