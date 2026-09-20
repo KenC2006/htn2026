@@ -405,6 +405,13 @@ def handle(line: str, state: dict) -> bool:
     except ValueError:
         words = line.split()
     cmd, args = words[0].lstrip("/").lower(), [w.strip('"') for w in words[1:]]
+    if state.get("mode") == "arkts" and cmd in ("check", "migrate", "verify") and args and Path(args[0]).is_dir():
+        inside = sorted(Path(args[0]).glob("*.ts"))       # a folder named in TypeScript mode: the .ts file in it
+        if len(inside) == 1:
+            args[0] = str(inside[0]).replace(os.sep, "/")
+        elif inside and cmd != "verify":
+            console.print(f"  TypeScript is migrated one file at a time. In {args[0]}: {', '.join(f.name for f in inside)}")
+            return True
 
     if cmd in ("quit", "exit", "q"):
         return False
