@@ -2,7 +2,7 @@
 
   doctor                      check toolchains, framework, key and budget
   scan <profile_dir>          show what a migration would include, before spending any tokens
-  new <file|folder|module>    make a project from real Python code: finds the functions that can be migrated, builds inputs and the Rust scaffold
+  new <file|folder|module>    make a project from real Python, C or TypeScript code: finds the functions that can be migrated, builds inputs and the scaffold
   run <profile_dir> [--resume --run-id X]   migrate with the agent team; --resume continues an interrupted run
   check <profile_dir> <candidate_dir> [--author NAME]   check a translation written by anyone (another model, a person)
   watch <run_id> [--replay]   live view of the agents, in plain words (run shows it by default in a terminal)
@@ -43,6 +43,12 @@ def _load_profile(profile_dir: Path) -> tuple[dict, dict]:
     return profile, chunks
 
 
+def _why(log: str) -> str:
+    """The line of a failed tool's output that says what is wrong: the last "Error: ..." line, else the last line."""
+    lines = [x.strip() for x in log.splitlines() if x.strip()]
+    return next((x.removeprefix("Error: ") for x in reversed(lines) if x.startswith("Error: ")), lines[-1] if lines else "no output")
+
+
 # ───────────────────────── doctor ─────────────────────────
 
 def doctor(_: argparse.Namespace) -> int:
@@ -65,13 +71,15 @@ def doctor(_: argparse.Namespace) -> int:
         rows.append(("workswarm / openjiuwen", True, f"workswarm {version('workswarm')}, openjiuwen {version('openjiuwen')}", True))
     except Exception as e:  # noqa: BLE001
         rows.append(("workswarm / openjiuwen", False, str(e)[:70], True))
-    tool("rustc", ["rustc", "--version"], True, "all Rust routes")
-    tool("cargo", ["cargo", "--version"], True, "all Rust routes")
-    tool("maturin", ["maturin", "--version"], False, "py-rust-batch")
-    tool("clang", ["clang", "--version"], False, "c-rust-buffer oracle with sanitizers")
-    tool("node", ["node", "--version"], False, "ts-arkts-core source runner")
-    tool("hdc (ArkTS device)", ["hdc", "version"], False, "ts-arkts-core native run")
-    tool("docker", ["docker", "--version"], False, "optional candidate isolation")
+    tool("rustc", ["rustc", "--version"], True, "builds every translation")
+    tool("gcc", ["gcc", "--version"], False, "C to Rust only: compiles the original")
+    arkts = ROOT / "fixtures" / "telemetry-workbench" / "ts-arkts-core"      # the route's own check: DevEco Studio, signing, one running emulator
+    try:
+        out = subprocess.run([sys.executable, "runners/build.py", "--preflight"], cwd=arkts, capture_output=True, text=True, timeout=60)
+        last = _why(out.stdout + out.stderr)
+        rows.append(("TypeScript to ArkTS", out.returncode == 0, last.removeprefix("RuntimeError: ")[:110] + ("" if out.returncode == 0 else "  (env/setup-arkts.md)"), False))
+    except Exception as e:  # noqa: BLE001
+        rows.append(("TypeScript to ArkTS", False, str(e)[:70], False))
     for var in ("API_BASE", "API_KEY", "MODEL_NAME", "REVIEWER_MODEL"):
         rows.append((f"env {var}", bool(os.environ.get(var)), "set" if os.environ.get(var) else "missing: . env/activate-swarm.sh", var != "REVIEWER_MODEL"))
     if os.environ.get("API_KEY") and os.environ.get("API_BASE"):
@@ -190,7 +198,8 @@ def _preflight(profile_dir: Path) -> bool:
         return True
     code, log = _run(profile['preflight'], profile_dir, 30)
     if code != 0:
-        print('Environment preflight failed before verification or agent calls:\n' + log)
+        why = _why(log)
+        print("  this project cannot run on this machine yet: " + why.removeprefix("RuntimeError: "))
         return False
     return True
 
@@ -268,7 +277,7 @@ def check(ns: argparse.Namespace) -> int:
         missing = [d for d in chunks[cid].get("depends_on", []) if d not in integ.accepted]
         paths = chunks[cid]["write_allowlist"]
         if missing or not all((cand_dir / p).exists() for p in paths):
-            blocked[cid] = "a function it calls was not kept" if missing else "no file handed in"
+            blocked[cid] = "a function it calls was not kept" if missing else "no Rust file for it in that folder"
             events.emit("chunk.blocked", actor="scheduler", chunk_id=cid, payload={"reason": blocked[cid]})
             return None
         cand = {"files": [{"path": p, "content": (cand_dir / p).read_text(encoding="utf-8")} for p in paths],
@@ -364,13 +373,15 @@ def status(ns: argparse.Namespace) -> int:
         elif t == "chunk.accepted":
             s_["mark"], s_["state"] = "✓", "kept"
         elif t == "chunk.blocked":
-            s_["mark"], s_["state"] = "✗", "needs a human"
+            s_["mark"], s_["state"] = ("–", "not written") if str(e["payload"].get("reason") or "").startswith("no Rust file") else ("✗", "needs a human")
             s_["last"] = s_["last"] or str(e["payload"].get("reason") or "")[:60]
     kept = sum(1 for x in state.values() if x["state"] == "kept")
     fin = any(e["type"] == "run.finished" for e in ev)
     who = start.get("mode", "team")
+    # No run.finished and nothing written for 10 minutes: it was stopped from outside (a closed terminal, a killed process).
+    quiet = not fin and (datetime.now().timestamp() - (RUNS / ns.run_id / "events.jsonl").stat().st_mtime) > 600
     print(f"{ns.run_id} · {'agent team' if who == 'team' else who.replace('outside: ', 'written by ')} · "
-          f"{'finished' if fin else 'still running'} · {kept} of {len(state)} kept\n")
+          f"{'finished' if fin else 'stopped before it finished' if quiet else 'still running'} · {kept} of {len(state)} kept\n")
     width = max((len(n) for n in names.values()), default=8) + 2
     for c, x in state.items():
         notes = []
@@ -385,9 +396,11 @@ def status(ns: argparse.Namespace) -> int:
     if hidden:
         got, want = (sum(e["payload"]["cases"].get(k, 0) for e in hidden) for k in ("passed", "expected"))
         print(f"\n  hidden tests: {got} of {want} match the original" + ("" if got == want else "  ✗ passed the visible tests but is not a correct translation"))
+    if quiet and who == "team":
+        print(f"\n  what was kept is safe. Continue it:  parity run {Path(start.get('profile_dir') or '').name} --run-id {ns.run_id} --resume")
     rules = len(_jsonl(RUNS / ns.run_id / "decisions.jsonl"))
     if rules:
-        print(f"  expert rules made during the run: {rules}  (python env/show-run.py {ns.run_id} for the full story)")
+        print(f"  expert rules made during the run: {rules}  (python {ROOT / 'env' / 'show-run.py'} {ns.run_id} for the full story)")
     return 0
 
 
@@ -491,9 +504,10 @@ def export(ns: argparse.Namespace) -> int:
         print(f"  {f.name}  ({f.stat().st_size} bytes)")
     kept = RUNS / ns.run_id / "accepted"
     if WORK != ROOT and kept.exists():                      # working in someone's own folder: put the new code where they can see it
-        dest = Path.cwd() / f"{profile_dir.name}-rust"
+        new = _load_profile(profile_dir)[0].get("languages", {}).get("target", "Rust")
+        dest = Path.cwd() / f"{profile_dir.name}-{new.lower()}"
         shutil.copytree(kept, dest, dirs_exist_ok=True)
-        print(f"\nThe proven Rust is in {dest.name}/")
+        print(f"\nThe proven {new} is in {dest.name}/")
     return 0 if exportable else 1
 
 
@@ -525,7 +539,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--list", action="store_true", help="only show which functions qualify"); p.add_argument("--no-ai", action="store_true", help="default input ranges, no model call")
     p.set_defaults(fn=new)
     p = sub.add_parser("run"); p.add_argument("profile_dir", nargs="?", help="project folder or name; default: the one made most recently here")
-    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=1500000)
+    p.add_argument("--run-id"); p.add_argument("--token-limit", type=int, default=3000000)   # a 10-function run on the cheap models used 1.07M
     p.add_argument("--resume", action="store_true", help="continue an interrupted run: keeps accepted chunks whose receipts still hold")
     p.add_argument("--no-watch", action="store_true", help="do not show the live view")
     p.add_argument("--escalate", help="stronger models, comma separated: a function that runs out of tries moves up to the next one "

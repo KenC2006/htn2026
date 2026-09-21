@@ -15,7 +15,7 @@ from . import gate
 from .events import EventLog
 
 
-def locked_evaluate(run_dir: Path, profile_dir: Path, *, force: bool = False) -> dict:
+def locked_evaluate(run_dir: Path, profile_dir: Path, *, force: bool = False, events: EventLog | None = None) -> dict:
     run_dir, profile_dir = Path(run_dir), Path(profile_dir)
     profile = json.loads((profile_dir / "profile.json").read_text(encoding="utf-8"))
     rel = profile.get("locked_cases")
@@ -27,17 +27,19 @@ def locked_evaluate(run_dir: Path, profile_dir: Path, *, force: bool = False) ->
     accepted = [c for c, r in receipts.items() if r["status"] == "ACCEPTED"]
     if not accepted:
         return {"status": "NOT_RUN", "detail": "no accepted chunks to evaluate"}
-    if not force and any(isinstance(r.get("locked_evaluation"), dict) for r in receipts.values()):
+    # Single use per function: one that already has a result is never run again. A resumed run only evaluates what it added.
+    todo = accepted if force else [c for c in accepted if not isinstance(receipts[c].get("locked_evaluation"), dict)]
+    if not todo:
         return {"status": "ALREADY_RUN", "detail": "locked cases are single-use for a run; results are in the receipts"}
 
     files = {p.relative_to(run_dir / "accepted").as_posix(): p.read_text(encoding="utf-8")
              for p in sorted((run_dir / "accepted").rglob("*")) if p.is_file()}
     owner = {path: cid for cid in accepted for path in chunks[cid]["write_allowlist"]}
     case_hash = hashlib.sha256(locked.read_bytes()).hexdigest()
-    events = EventLog(run_dir, run_dir.name)
+    events = events or EventLog(run_dir, run_dir.name)
     summary = {"status": "PASS", "case_manifest_hash": case_hash, "chunks": {}}
 
-    for cid in accepted:
+    for cid in todo:
         mine = [{"path": p, "content": c} for p, c in files.items() if owner.get(p) == cid]
         others = {p: c for p, c in files.items() if owner.get(p) != cid}
         v = gate.check(profile_dir, cid, {"files": mine}, locked, run_dir, attempt_id=f"{cid}:locked-eval",

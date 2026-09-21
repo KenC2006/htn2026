@@ -1,16 +1,16 @@
-# Parity hour-one contracts (v1, owner: A)
+# Parity project folder format (v1)
 
-What B, C and D build against. Change only by telling A; bump `schema_version` if a field changes meaning.
-Full background: `Ratchet_Hackathon_Plan.md` section 14.
+What a project folder holds and what the engine writes. `parity new` generates all of it for Python and C; this is the
+reference for writing one by hand. Bump `schema_version` if a field changes meaning.
 
 ## 1. What a route owner (B, C) hands to the gate
 
-Each profile (`py-rust-batch`, `c-rust-buffer`, `ts-arkts-core`) provides two commands. Both read a cases file and write an observations file. The gate never trusts anything else.
+Each profile provides two commands. Both read a cases file and write an observations file. The gate never trusts anything else.
 
     <run_source> --cases cases.jsonl --out source_obs.jsonl
     <run_target> --cases cases.jsonl --out target_obs.jsonl --candidate <dir>
 
-Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
+Declare them in `<project>/profile.json`:
 
 ```json
 {
@@ -18,7 +18,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
   "profile": "py-rust-batch",
   "run_source": ["python", "runners/py_source.py"],
   "run_target": ["python", "runners/py_target.py"],
-  "build_target": ["maturin", "develop", "--release"],
+  "build_target": ["rustc", "-O", "harness/main.rs", "-o", "parity_target.exe"],
   "verify_seconds": 180,
   "frozen": ["profile.json", "chunks/*", "contracts/*", "legacy/*", "harness/*", "runners/*", "cases.jsonl"],
   "oracle_paths": ["legacy", "cases.jsonl"],
@@ -67,7 +67,7 @@ Declare them in `fixtures/telemetry-workbench/<profile>/profile.json`:
 
 ## 2. Chunk manifest (route owner writes, A schedules from it)
 
-`fixtures/telemetry-workbench/<profile>/chunks/<chunk_id>.json`
+`<project>/chunks/<chunk_id>.json`
 
 ```json
 {
@@ -95,7 +95,7 @@ Workers may only return files listed in `write_allowlist`. Anything else is `REJ
 - Give pieces that do not share a convention **separate contracts**. A ruling bumps its contract's version and makes every piece on that contract stale; on the first real-library run one shared contract for six unrelated functions meant each ruling threw away the others' work.
 - `python -m parity new <python file | folder | module>` writes all of the above for Python to Rust (see README). Its `input_domain` rules are typed: `type` (`int`, `float`, `str`, `bool`, `list`), `min`, `max`, `max_len`, `choices`, `nullable`, `max_items`, `alphabet`; `parity/engine/domain.py::in_domain` enforces them for the tester and the expert alike.
 
-### Contracts: `fixtures/telemetry-workbench/<profile>/contracts/<contract_id>.json`
+### Contracts: `<project>/contracts/<contract_id>.json`
 
 ```json
 {"schema_version": 1, "contract_id": "bucket-semantics", "version": 1,
@@ -138,7 +138,10 @@ Gate verdict `reason` values (in gate order): `STALE`, `REJECTED_POLICY`, `REJEC
 
 `runs/<run_id>/accepted/`: the accepted files. `runs/<run_id>/verdicts/*.json`: every gate verdict, with the counterexample.
 
-`runs/<run_id>/receipts/<chunk_id>.json`: see plan section 14, "Gate verdict and receipt". Shape is frozen as written there.
+`runs/<run_id>/receipts/<chunk_id>.json`: the proof that one function was kept. Fields: `status` (`ACCEPTED`, `STALE`, `FAILED_LOCKED_EVALUATION`), `attempt_id`,
+`accepted_tree` and `accepted_chunks` (the tree it joined), `contract_hashes`, `fixture_hash`, `candidate_hash`, `verifier_hash` (the checker's own source),
+`cases` (expected, observed, passed, skipped), `checks`, `locked_evaluation` (`NOT_RUN` or the hidden test result) and `limitations`. A resumed run reuses a
+receipt only when it is `ACCEPTED` for the same `fixture_hash` and the current `contract_hashes`.
 
 ## 4. What a worker hands in (A only; via its `submit_candidate` tool)
 
@@ -153,5 +156,5 @@ Workers have three tools only (ask the steward, compile, submit). The gate build
 
 Add to `profile.json`: `"locked_cases": "locked/cases.jsonl"`, and put `"locked/*"` in `frozen` and `"locked"` in `oracle_paths`.
 Same case format as `cases.jsonl`, generated with **different seeds** from your development cases (see `tests/flow_fixture/gen_cases.py`).
-`python -m parity evaluate <run_id>` runs the accepted tree against them exactly once, after the run. Results go into each receipt's
+A team run does this itself as its last step, and `parity check` does it after checking; `python -m parity evaluate <run_id>` does it for a run that ended before it got there. Each accepted function meets them exactly once. Results go into each receipt's
 `locked_evaluation` and into `report.md`. A failure is kept as a result and makes the run non-exportable; it is never fed back to an agent.

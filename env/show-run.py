@@ -1,7 +1,8 @@
 """Print a run's result and event trace: python env/show-run.py <run_id>"""
 import json, sys
 from pathlib import Path
-root = Path(__file__).resolve().parents[1] / "runs"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from parity.paths import RUNS as root      # runs/ in the Parity repo, or .parity/runs in the folder you are working in
 rid = sys.argv[1]
 out = root / f"{rid}.out"
 if out.exists():

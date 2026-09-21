@@ -8,7 +8,10 @@ planner, workers, a steward clarification and an adversarial tester all ran
 for real, all three chunks (`bucketStart`, `clampValue`, `summarizeBuckets`)
 were accepted, and the single-use locked evaluation passed 146 of 146 hidden
 cases (see `runs/arkts-agent-1/export/report.md`, gitignored). Automatic TS
-onboarding (step 6) is not implemented yet.
+onboarding (step 6) now exists for one stand-alone `.ts` file of exported
+functions over numbers, strings, booleans and arrays of them:
+`parity/newarkts.py` and `parity/arkts/` scan the file and generate the project,
+reusing this profile's harness and device runners (README, "TypeScript to ArkTS").
 Reference checkout: `37802f26cd53f6aba783bea41d437d9476bb26b7` (2026-09-19).
 Scope: Python-to-Rust is the implementation reference, per the user's direction.
 

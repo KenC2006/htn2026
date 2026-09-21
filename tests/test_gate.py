@@ -1,4 +1,4 @@
-"""Gate self-checks (plan section 11, "The verifier's own checks"). Uses the real rustc.
+"""Gate self-checks. Uses the real rustc.
 
     python -m unittest tests.test_gate -v
 """

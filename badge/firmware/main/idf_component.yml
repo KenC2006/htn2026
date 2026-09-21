@@ -1,6 +1,0 @@
-# Managed components auto-fetched at build time.
-# led_strip drives the six WS2812B LEDs on GPIO3. If you set USE_LED 0 in
-# badge_bringup.c, this dependency is unused and can be removed.
-dependencies:
-  espressif/led_strip: "^2.5.5"
-  idf: ">=5.3"

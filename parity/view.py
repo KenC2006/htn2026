@@ -174,6 +174,7 @@ class Board:
         worker = self.mode[9:] if self.mode.startswith("outside: ") else "worker"
         if t == "run.started":
             self.t0, self.mode = _ts(e), p.get("mode", "team")
+            self.label = p.get("label", "")            # a cut or scripted replay says so on screen, in place of the clock
             try:
                 root = Path(p["profile_dir"])
                 lang = json.loads((root / "profile.json").read_text(encoding="utf-8")).get("languages", {})
@@ -293,6 +294,9 @@ class Board:
             self.say(e, "run", "run", f"{name} was kept in the earlier run, reused")
         elif t == "chunk.blocked" and piece and piece["state"].startswith("REJECTED"):
             pass                                   # keep the failing input on screen
+        elif t == "chunk.blocked" and str(p.get("reason") or "").startswith("no Rust file"):
+            self._set(piece, "NOT WRITTEN", "yellow", p["reason"], "dim")      # nothing was handed in for it: not a failure of the Rust
+            self.say(e, "run", "run", f"– {name} has no Rust yet")
         elif t == "chunk.blocked":
             self._set(piece, "NEEDS A HUMAN", "bold red", _short(p.get("reason") or p.get("detail"), 110), "bold red")
             self.say(e, "run", "run", f"✗ {name} needs a human")
@@ -351,7 +355,8 @@ class Board:
     def render(self, height: int, width: int) -> Group:
         kept = sum(1 for s in self.pieces.values() if s["state"].startswith("KEPT"))
         who = self.mode[9:] if self.mode.startswith("outside: ") else "agent team"
-        head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  {int(max(self.now - self.t0, 0))}s  ·  ", "dim"),
+        head = Text.assemble(("  ≡ ", "bold #00e0c4"), ("parity", "bold"), (f"   {self.title}  ·  {who}  ·  ", "dim"),
+                             ((self.label, "bold yellow") if getattr(self, "label", "") else (f"{int(max(self.now - self.t0, 0))}s", "dim")), ("  ·  ", "dim"),
                              (f"{kept}/{len(self.pieces)} kept", "bold green" if kept == len(self.pieces) and kept else "bold"),
                              (f"  ·  hidden tests {self.hidden}" if self.hidden else "", "bold red" if "FAIL" in self.hidden else "green"))
         rule = self.rules[-1] if self.rules else None
@@ -360,7 +365,7 @@ class Board:
                                (_short(self.caught[-1], max(width - 16, 40)), "red")) if self.caught else None
 
         # one line per function, then ONE code panel: the function being worked on right now
-        marks = {"KEPT": ("✓", "bold green"), "NEED": ("✗", "bold red"), "REJE": ("✗", "bold red"), "FAIL": ("✗", "bold red"), "wait": ("·", "dim")}
+        marks = {"KEPT": ("✓", "bold green"), "NEED": ("✗", "bold red"), "REJE": ("✗", "bold red"), "FAIL": ("✗", "bold red"), "wait": ("·", "dim"), "NOT ": ("–", "yellow")}
         wide = max((len(x["what"] or c) for c, x in self.pieces.items()), default=8) + 2
         rows = []
         for c, x in self.pieces.items():

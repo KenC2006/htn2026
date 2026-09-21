@@ -375,6 +375,12 @@ async def run(args):
         for c, cand in zip(level, candidates):
             await integrate(c, cand)
 
+    # The hidden test set, once, on what was kept. Before run.finished so the live view shows it; a failure is a result, never fed back.
+    if integ.accepted and profile.get("locked_cases"):
+        from parity.engine.evaluate import locked_evaluate
+        hidden = await asyncio.to_thread(locked_evaluate, run_dir, profile_dir, events=events)
+        log(f"hidden test set: {hidden['status']}")
+
     result = {"profile": profile["profile"], "accepted": list(integ.accepted), "blocked": blocked,
               "stale": sorted(integ.stale), "exportable": integ.exportable and not blocked,
               "decisions": [g["decision_id"] for c in ledger.contracts.values() for g in c["guidance"]],
